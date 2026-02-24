@@ -5,7 +5,7 @@ import { validateAdminAuth } from '@/lib/auth';
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
-  if (!validateAdminAuth(req)) {
+  if (!(await validateAdminAuth(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

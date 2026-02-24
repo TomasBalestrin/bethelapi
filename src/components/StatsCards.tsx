@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import type { DashboardStats } from '@/types/database';
 
 interface Props {
-  adminSecret: string;
   autoRefresh: boolean;
 }
 
@@ -12,16 +11,14 @@ interface StatsResponse extends DashboardStats {
   events_per_hour: Record<string, { total: number; sent: number; failed: number }>;
 }
 
-export function StatsCards({ adminSecret, autoRefresh }: Props) {
+export function StatsCards({ autoRefresh }: Props) {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [hours, setHours] = useState(24);
   const [loading, setLoading] = useState(true);
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch(`/api/admin/stats?hours=${hours}`, {
-        headers: { 'x-admin-secret': adminSecret },
-      });
+      const res = await fetch(`/api/admin/stats?hours=${hours}`);
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -31,7 +28,7 @@ export function StatsCards({ adminSecret, autoRefresh }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [adminSecret, hours]);
+  }, [hours]);
 
   useEffect(() => {
     fetchStats();

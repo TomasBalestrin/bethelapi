@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 
 // GET — List all pixels with their sites
 export async function GET(req: NextRequest) {
-  if (!validateAdminAuth(req)) {
+  if (!(await validateAdminAuth(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
 // POST — Create new pixel or site
 export async function POST(req: NextRequest) {
-  if (!validateAdminAuth(req)) {
+  if (!(await validateAdminAuth(req))) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

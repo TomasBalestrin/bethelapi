@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase-browser';
 import { StatsCards } from '@/components/StatsCards';
 import { EventsTable } from '@/components/EventsTable';
 import { DlqPanel } from '@/components/DlqPanel';
@@ -9,47 +11,16 @@ import { PixelsPanel } from '@/components/PixelsPanel';
 type Tab = 'dashboard' | 'events' | 'dlq' | 'pixels';
 
 export default function AdminPage() {
-  const [adminSecret, setAdminSecret] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const router = useRouter();
 
-  useEffect(() => {
-    const stored = sessionStorage.getItem('admin_secret');
-    if (stored) {
-      setAdminSecret(stored);
-      setIsAuthenticated(true);
-    }
-  }, []);
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    sessionStorage.setItem('admin_secret', adminSecret);
-    setIsAuthenticated(true);
+  const handleLogout = async () => {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    router.push('/login');
+    router.refresh();
   };
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <form onSubmit={handleLogin} className="bg-gray-900 p-8 rounded-xl border border-gray-800 w-full max-w-md">
-          <h1 className="text-2xl font-bold text-white mb-6">Bethel GTM Admin</h1>
-          <input
-            type="password"
-            value={adminSecret}
-            onChange={(e) => setAdminSecret(e.target.value)}
-            placeholder="Admin Secret"
-            className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg text-white placeholder-gray-500 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            type="submit"
-            className="w-full p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition"
-          >
-            Entrar
-          </button>
-        </form>
-      </div>
-    );
-  }
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'dashboard', label: 'Dashboard' },
@@ -75,11 +46,7 @@ export default function AdminPage() {
               Auto-refresh
             </label>
             <button
-              onClick={() => {
-                sessionStorage.removeItem('admin_secret');
-                setIsAuthenticated(false);
-                setAdminSecret('');
-              }}
+              onClick={handleLogout}
               className="text-sm text-gray-400 hover:text-white transition"
             >
               Sair
@@ -110,16 +77,16 @@ export default function AdminPage() {
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 py-6">
         {activeTab === 'dashboard' && (
-          <StatsCards adminSecret={adminSecret} autoRefresh={autoRefresh} />
+          <StatsCards autoRefresh={autoRefresh} />
         )}
         {activeTab === 'events' && (
-          <EventsTable adminSecret={adminSecret} autoRefresh={autoRefresh} />
+          <EventsTable autoRefresh={autoRefresh} />
         )}
         {activeTab === 'dlq' && (
-          <DlqPanel adminSecret={adminSecret} autoRefresh={autoRefresh} />
+          <DlqPanel autoRefresh={autoRefresh} />
         )}
         {activeTab === 'pixels' && (
-          <PixelsPanel adminSecret={adminSecret} />
+          <PixelsPanel />
         )}
       </main>
     </div>

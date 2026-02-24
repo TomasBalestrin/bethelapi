@@ -10,7 +10,7 @@ export default function Home() {
         </p>
         <div className="flex gap-4 justify-center">
           <Link
-            href="/admin"
+            href="/login"
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg font-medium transition"
           >
             Admin Dashboard

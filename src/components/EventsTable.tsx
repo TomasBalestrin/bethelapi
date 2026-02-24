@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
 interface Props {
-  adminSecret: string;
   autoRefresh: boolean;
 }
 
@@ -27,7 +26,7 @@ interface Pagination {
   pages: number;
 }
 
-export function EventsTable({ adminSecret, autoRefresh }: Props) {
+export function EventsTable({ autoRefresh }: Props) {
   const [events, setEvents] = useState<EventRow[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 50, total: 0, pages: 0 });
   const [loading, setLoading] = useState(true);
@@ -44,9 +43,7 @@ export function EventsTable({ adminSecret, autoRefresh }: Props) {
       if (statusFilter) params.set('status', statusFilter);
       if (eventNameFilter) params.set('event_name', eventNameFilter);
 
-      const res = await fetch(`/api/admin/events?${params}`, {
-        headers: { 'x-admin-secret': adminSecret },
-      });
+      const res = await fetch(`/api/admin/events?${params}`);
       if (res.ok) {
         const data = await res.json();
         setEvents(data.data || []);
@@ -57,7 +54,7 @@ export function EventsTable({ adminSecret, autoRefresh }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [adminSecret, pagination.page, statusFilter, eventNameFilter]);
+  }, [pagination.page, statusFilter, eventNameFilter]);
 
   useEffect(() => {
     setLoading(true);

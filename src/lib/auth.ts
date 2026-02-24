@@ -1,4 +1,5 @@
 import { createHmac } from 'crypto';
+import { createServerClient } from '@supabase/ssr';
 import { NextRequest } from 'next/server';
 import { supabaseAdmin } from './supabase';
 
@@ -32,16 +33,39 @@ export async function validateIngestToken(
   return { valid: true, site_id: site.id, pixel_uuid: site.pixel_uuid };
 }
 
-// Validate admin secret
-export function validateAdminAuth(req: NextRequest): boolean {
+// Validate admin auth: supports both admin_secret header and Supabase session cookies
+export async function validateAdminAuth(req: NextRequest): Promise<boolean> {
+  // 1. Check admin secret (for programmatic access)
   const secret = process.env.ADMIN_SECRET;
-  if (!secret) return false;
+  if (secret) {
+    const headerSecret =
+      req.headers.get('x-admin-secret') ||
+      req.nextUrl.searchParams.get('admin_secret');
+    if (headerSecret === secret) return true;
+  }
 
-  const headerSecret =
-    req.headers.get('x-admin-secret') ||
-    req.nextUrl.searchParams.get('admin_secret');
+  // 2. Check Supabase session (for browser access via cookies)
+  try {
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return req.cookies.getAll();
+          },
+          setAll() {
+            // Route handlers can't set cookies during validation
+          },
+        },
+      }
+    );
 
-  return headerSecret === secret;
+    const { data: { user } } = await supabase.auth.getUser();
+    return !!user;
+  } catch {
+    return false;
+  }
 }
 
 // Validate cron secret (Vercel)
