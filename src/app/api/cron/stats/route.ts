@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { validateCronAuth } from '@/lib/auth';
+import { validateAdminAuth, validateCronAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
 
+// Manual trigger — accepts both admin secret and cron secret
 export async function GET(req: NextRequest) {
-  if (!validateCronAuth(req)) {
+  if (!validateAdminAuth(req) && !validateCronAuth(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
       date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
     });
   } catch (err) {
-    console.error('Stats cron error:', err);
+    console.error('Stats error:', err);
     return NextResponse.json({ error: 'Failed to aggregate stats' }, { status: 500 });
   }
 }
