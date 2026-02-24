@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { validateIngestToken, getClientIp } from '@/lib/auth';
 import { hashUserData, hashIp } from '@/lib/hash';
 import { IngestEventSchema, IngestBatchSchema } from '@/lib/validators';
+import { processEventQueue } from '@/lib/dispatcher';
 
 export const runtime = 'nodejs';
 
@@ -91,6 +92,11 @@ export async function POST(req: NextRequest) {
       console.error('Ingest insert error:', error);
       return NextResponse.json({ error: 'Failed to persist events' }, { status: 500 });
     }
+
+    // 6. Fire-and-forget: trigger dispatcher inline (don't await)
+    processEventQueue().catch((err) =>
+      console.error('Inline dispatch error:', err)
+    );
 
     return NextResponse.json(
       {

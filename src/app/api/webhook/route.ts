@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { validateWebhookSignature } from '@/lib/auth';
 import { hashUserData } from '@/lib/hash';
 import { WebhookPayloadSchema } from '@/lib/validators';
+import { processEventQueue } from '@/lib/dispatcher';
 
 export const runtime = 'nodejs';
 
@@ -74,6 +75,11 @@ export async function POST(req: NextRequest) {
         })
         .eq('event_id', existingEvent.event_id);
 
+      // Fire-and-forget: dispatch immediately
+      processEventQueue().catch((err) =>
+        console.error('Inline dispatch error (webhook reconcile):', err)
+      );
+
       return NextResponse.json({
         success: true,
         action: 'reconciled',
@@ -128,6 +134,11 @@ export async function POST(req: NextRequest) {
       console.error('Webhook insert error:', error);
       return NextResponse.json({ error: 'Failed to create event' }, { status: 500 });
     }
+
+    // Fire-and-forget: dispatch immediately
+    processEventQueue().catch((err) =>
+      console.error('Inline dispatch error (webhook create):', err)
+    );
 
     return NextResponse.json({
       success: true,
