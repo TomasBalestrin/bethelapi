@@ -17,36 +17,70 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 1. Ensure user exists (auto-provision on first login)
-      const provisionRes = await fetch('/api/auth/login', {
+      // 1. Try server-side provisioning (creates user with confirmed email)
+      await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
-      });
+      }).catch(() => {}); // Ignore errors — not critical
 
-      if (!provisionRes.ok) {
-        const data = await provisionRes.json();
-        setError(data.error || 'Erro ao provisionar usuário');
-        setLoading(false);
-        return;
-      }
-
-      // 2. Sign in with Supabase Auth (sets session cookies)
       const supabase = createClient();
-      const { error: authError } = await supabase.auth.signInWithPassword({
+
+      // 2. Try to sign in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (authError) {
-        setError('Email ou senha incorretos');
+      if (!signInError) {
+        router.push('/admin');
+        router.refresh();
+        return;
+      }
+
+      // 3. If user doesn't exist, try client-side signUp as fallback
+      if (signInError.message.includes('Invalid login credentials')) {
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+        });
+
+        if (signUpError) {
+          setError(signUpError.message);
+          setLoading(false);
+          return;
+        }
+
+        // If signUp returned a session, user is auto-confirmed
+        if (signUpData.session) {
+          router.push('/admin');
+          router.refresh();
+          return;
+        }
+
+        // Try sign in again (may work if email confirmation is disabled)
+        const { error: retryError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (!retryError) {
+          router.push('/admin');
+          router.refresh();
+          return;
+        }
+
+        if (retryError.message.includes('Email not confirmed')) {
+          setError('Conta criada! Verifique seu email para confirmar.');
+        } else {
+          setError(retryError.message);
+        }
         setLoading(false);
         return;
       }
 
-      // 3. Redirect to admin dashboard
-      router.push('/admin');
-      router.refresh();
+      setError(signInError.message);
+      setLoading(false);
     } catch (err) {
       console.error('Login error:', err);
       setError('Erro de conexão. Tente novamente.');
