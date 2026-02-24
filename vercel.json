@@ -3,14 +3,6 @@
     {
       "path": "/api/dispatcher",
       "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/stats",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/cron/purge",
-      "schedule": "0 4 * * 0"
     }
   ]
 }
