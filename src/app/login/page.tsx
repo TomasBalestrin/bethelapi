@@ -16,20 +16,42 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
 
-    const supabase = createClient();
-    const { error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    try {
+      // 1. Ensure user exists (auto-provision on first login)
+      const provisionRes = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
 
-    if (authError) {
-      setError('Email ou senha incorretos');
+      if (!provisionRes.ok) {
+        const data = await provisionRes.json();
+        setError(data.error || 'Erro ao provisionar usuário');
+        setLoading(false);
+        return;
+      }
+
+      // 2. Sign in with Supabase Auth (sets session cookies)
+      const supabase = createClient();
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (authError) {
+        setError('Email ou senha incorretos');
+        setLoading(false);
+        return;
+      }
+
+      // 3. Redirect to admin dashboard
+      router.push('/admin');
+      router.refresh();
+    } catch (err) {
+      console.error('Login error:', err);
+      setError('Erro de conexão. Tente novamente.');
       setLoading(false);
-      return;
     }
-
-    router.push('/admin');
-    router.refresh();
   };
 
   return (
