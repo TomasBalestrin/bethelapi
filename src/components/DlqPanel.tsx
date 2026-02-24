@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
 interface Props {
-  adminSecret: string;
   autoRefresh: boolean;
 }
 
@@ -18,7 +17,7 @@ interface DlqEvent {
   reprocessed_at: string | null;
 }
 
-export function DlqPanel({ adminSecret, autoRefresh }: Props) {
+export function DlqPanel({ autoRefresh }: Props) {
   const [events, setEvents] = useState<DlqEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [reprocessing, setReprocessing] = useState<string | null>(null);
@@ -26,9 +25,7 @@ export function DlqPanel({ adminSecret, autoRefresh }: Props) {
 
   const fetchDlq = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/events?source=dlq&limit=100', {
-        headers: { 'x-admin-secret': adminSecret },
-      });
+      const res = await fetch('/api/admin/events?source=dlq&limit=100');
       if (res.ok) {
         const data = await res.json();
         setEvents(data.data || []);
@@ -38,7 +35,7 @@ export function DlqPanel({ adminSecret, autoRefresh }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [adminSecret]);
+  }, []);
 
   useEffect(() => {
     fetchDlq();
@@ -52,10 +49,7 @@ export function DlqPanel({ adminSecret, autoRefresh }: Props) {
     try {
       const res = await fetch('/api/admin/reprocess', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-secret': adminSecret,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ event_id: eventId }),
       });
       if (res.ok) {
@@ -73,10 +67,7 @@ export function DlqPanel({ adminSecret, autoRefresh }: Props) {
     try {
       const res = await fetch('/api/admin/reprocess-all', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-secret': adminSecret,
-        },
+        headers: { 'Content-Type': 'application/json' },
       });
       if (res.ok) {
         const data = await res.json();

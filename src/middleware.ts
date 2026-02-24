@@ -1,6 +1,7 @@
+import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // CORS for ingest and gtm.js endpoints (public, cross-origin)
@@ -24,9 +25,46 @@ export function middleware(req: NextRequest) {
     return response;
   }
 
+  // Auth protection for /admin pages
+  if (pathname.startsWith('/admin')) {
+    let response = NextResponse.next({
+      request: { headers: req.headers },
+    });
+
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return req.cookies.getAll();
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value));
+            response = NextResponse.next({
+              request: { headers: req.headers },
+            });
+            cookiesToSet.forEach(({ name, value, options }) =>
+              response.cookies.set(name, value, options)
+            );
+          },
+        },
+      }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      const loginUrl = new URL('/login', req.url);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    return response;
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/api/ingest', '/api/gtm.js'],
+  matcher: ['/api/ingest', '/api/gtm.js', '/admin/:path*'],
 };

@@ -2,10 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-interface Props {
-  adminSecret: string;
-}
-
 interface Pixel {
   id: string;
   name: string;
@@ -23,7 +19,7 @@ interface Site {
   created_at: string;
 }
 
-export function PixelsPanel({ adminSecret }: Props) {
+export function PixelsPanel() {
   const [pixels, setPixels] = useState<Pixel[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreatePixel, setShowCreatePixel] = useState(false);
@@ -40,9 +36,7 @@ export function PixelsPanel({ adminSecret }: Props) {
 
   const fetchPixels = useCallback(async () => {
     try {
-      const res = await fetch('/api/admin/pixels', {
-        headers: { 'x-admin-secret': adminSecret },
-      });
+      const res = await fetch('/api/admin/pixels');
       if (res.ok) {
         const data = await res.json();
         setPixels(data.data || []);
@@ -52,7 +46,7 @@ export function PixelsPanel({ adminSecret }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [adminSecret]);
+  }, []);
 
   useEffect(() => {
     fetchPixels();
@@ -63,10 +57,7 @@ export function PixelsPanel({ adminSecret }: Props) {
     try {
       const res = await fetch('/api/admin/pixels', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-secret': adminSecret,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'create_pixel',
           name: pixelName,
@@ -94,10 +85,7 @@ export function PixelsPanel({ adminSecret }: Props) {
     try {
       const res = await fetch('/api/admin/pixels', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-secret': adminSecret,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'create_site',
           pixel_uuid: pixelUuid,
