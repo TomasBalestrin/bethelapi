@@ -74,9 +74,14 @@ export default function LoginPage() {
 
       setError(signInError.message);
       setLoading(false);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Login error:', err);
-      setError('Erro de conexão. Tente novamente.');
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('Supabase não configurado') || message.includes('URL and API key')) {
+        setError('Variáveis de ambiente do Supabase não configuradas na Vercel. Veja o console para detalhes.');
+      } else {
+        setError('Erro de conexão. Tente novamente.');
+      }
       setLoading(false);
     }
   };
