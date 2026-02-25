@@ -17,16 +17,9 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 1. Try server-side provisioning (creates user with confirmed email)
-      await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      }).catch(() => {}); // Ignore errors — not critical
-
       const supabase = createClient();
 
-      // 2. Try to sign in
+      // 1. Try to sign in directly
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -38,7 +31,7 @@ export default function LoginPage() {
         return;
       }
 
-      // 3. If user doesn't exist, try client-side signUp as fallback
+      // 2. If user doesn't exist, create account
       if (signInError.message.includes('Invalid login credentials')) {
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
@@ -58,7 +51,7 @@ export default function LoginPage() {
           return;
         }
 
-        // Try sign in again (may work if email confirmation is disabled)
+        // Try sign in again (works if email confirmation is disabled in Supabase)
         const { error: retryError } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -71,9 +64,9 @@ export default function LoginPage() {
         }
 
         if (retryError.message.includes('Email not confirmed')) {
-          setError('Conta criada! Verifique seu email para confirmar.');
+          setError('Conta criada! Confirme seu email antes de entrar.');
         } else {
-          setError(retryError.message);
+          setError('Conta criada, mas não foi possível entrar. Tente novamente.');
         }
         setLoading(false);
         return;

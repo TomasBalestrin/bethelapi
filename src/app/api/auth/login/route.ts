@@ -1,34 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getSupabaseAdmin } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 
-// POST — Ensure user exists (with email auto-confirmed), then let client sign in
+// POST — Provision user with auto-confirmed email (requires service role key)
 export async function POST(req: NextRequest) {
   try {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!url || !serviceKey) {
+      return NextResponse.json({ ok: true, provisioned: false, reason: 'missing_config' });
+    }
+
     const { email, password } = await req.json();
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email e senha são obrigatórios' }, { status: 400 });
     }
 
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!url || !serviceKey) {
-      // Service role not configured — skip provisioning, let client handle it
-      return NextResponse.json({ ok: true, provisioned: false });
-    }
-
-    const supabaseAdmin = getSupabaseAdmin();
+    const supabaseAdmin = createClient(url, serviceKey);
 
     // Check if user already exists
     const { data: existingUsers, error: listError } = await supabaseAdmin.auth.admin.listUsers();
 
     if (listError) {
       console.error('List users error:', listError);
-      // Don't block login — let client try on its own
-      return NextResponse.json({ ok: true, provisioned: false });
+      return NextResponse.json({ ok: true, provisioned: false, reason: 'list_error' });
     }
 
     const userExists = existingUsers?.users?.some((u) => u.email === email);
@@ -37,7 +35,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, provisioned: true });
     }
 
-    // Create the user with email auto-confirmed (bypasses email verification)
+    // Create user with email auto-confirmed (bypasses email verification)
     const { error: createError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -46,14 +44,12 @@ export async function POST(req: NextRequest) {
 
     if (createError) {
       console.error('Create user error:', createError);
-      // Don't block login — let client try signUp as fallback
-      return NextResponse.json({ ok: true, provisioned: false });
+      return NextResponse.json({ ok: true, provisioned: false, reason: 'create_error' });
     }
 
     return NextResponse.json({ ok: true, provisioned: true });
   } catch (err) {
     console.error('Login provision error:', err);
-    // Never block login — always return ok so client can try
-    return NextResponse.json({ ok: true, provisioned: false });
+    return NextResponse.json({ ok: true, provisioned: false, reason: 'exception' });
   }
 }
