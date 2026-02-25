@@ -76,7 +76,110 @@ function generateSDK(config: {
   var timer = null;
   var sessionId = null;
 
-  // Generate session ID
+  // ─── Cookie helpers ───
+
+  function getCookie(name) {
+    try {
+      var match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+      return match ? match[2] : null;
+    } catch(e) { return null; }
+  }
+
+  function setCookie(name, value, days) {
+    try {
+      var d = new Date();
+      d.setTime(d.getTime() + days * 86400000);
+      var domain = location.hostname.replace(/^www\\./, "");
+      document.cookie = name + "=" + value + ";expires=" + d.toUTCString() + ";path=/;domain=." + domain + ";SameSite=Lax";
+    } catch(e) {}
+  }
+
+  // ─── Generate _fbp cookie (Meta browser ID) ───
+
+  function ensureFbp() {
+    var fbp = getCookie("_fbp");
+    if (fbp) return fbp;
+    var rand = "";
+    for (var i = 0; i < 10; i++) rand += Math.floor(Math.random() * 10);
+    fbp = "fb.1." + Date.now() + "." + rand;
+    setCookie("_fbp", fbp, 730);
+    return fbp;
+  }
+
+  // ─── Generate _fbc cookie from fbclid URL param ───
+
+  function ensureFbc() {
+    var fbc = getCookie("_fbc");
+    if (fbc) return fbc;
+    try {
+      var params = new URLSearchParams(location.search);
+      var fbclid = params.get("fbclid");
+      if (fbclid) {
+        fbc = "fb.1." + Date.now() + "." + fbclid;
+        setCookie("_fbc", fbc, 90);
+        return fbc;
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  // ─── Initialize cookies immediately ───
+
+  var _fbp = ensureFbp();
+  var _fbc = ensureFbc();
+
+  // ─── fbq shim (Meta Pixel Helper compatibility) ───
+
+  function setupFbqShim() {
+    if (window.fbq && window.fbq._bethel) return;
+
+    var pixelIds = [];
+    var fbqQueue = [];
+
+    function fbq() {
+      var args = Array.prototype.slice.call(arguments);
+      var command = args[0];
+
+      if (command === "init") {
+        pixelIds.push(args[1]);
+      } else if (command === "track" || command === "trackCustom") {
+        var eventName = args[1];
+        var params = args[2] || {};
+        track(eventName, { custom_data: params });
+      }
+
+      fbqQueue.push(args);
+
+      if (typeof window._fbq_callbacks === "object") {
+        for (var i = 0; i < window._fbq_callbacks.length; i++) {
+          try { window._fbq_callbacks[i].apply(null, args); } catch(e) {}
+        }
+      }
+    }
+
+    fbq.version = "2.9.174";
+    fbq.queue = fbqQueue;
+    fbq.loaded = true;
+    fbq.push = fbq;
+    fbq._bethel = true;
+    fbq.getState = function() {
+      return {
+        pixelInstances: pixelIds.map(function(id) {
+          return { pixelId: id };
+        })
+      };
+    };
+
+    window.fbq = fbq;
+    window._fbq = fbq;
+
+    fbq("init", CONFIG.pixelId);
+  }
+
+  setupFbqShim();
+
+  // ─── Session ID ───
+
   function getSessionId() {
     if (sessionId) return sessionId;
     try {
@@ -91,20 +194,8 @@ function generateSDK(config: {
     return sessionId;
   }
 
-  // Get Facebook cookies
-  function getFbCookies() {
-    var cookies = {};
-    try {
-      document.cookie.split(";").forEach(function(c) {
-        var parts = c.trim().split("=");
-        if (parts[0] === "_fbp") cookies.fbp = parts[1];
-        if (parts[0] === "_fbc") cookies.fbc = parts[1];
-      });
-    } catch(e) {}
-    return cookies;
-  }
+  // ─── Retry queue (localStorage) ───
 
-  // Get retry queue from localStorage
   function getRetryQueue() {
     try {
       var stored = localStorage.getItem(CONFIG.retryKey);
@@ -116,14 +207,16 @@ function generateSDK(config: {
     try { localStorage.setItem(CONFIG.retryKey, JSON.stringify(q)); } catch(e) {}
   }
 
-  // Flush event batch
+  // ─── Flush event batch ───
+
   function flush() {
     if (queue.length === 0) return;
     var batch = queue.splice(0, 50);
     send({ events: batch });
   }
 
-  // Send to ingest endpoint
+  // ─── Send to ingest endpoint ───
+
   function send(payload) {
     try {
       var xhr = new XMLHttpRequest();
@@ -132,10 +225,7 @@ function generateSDK(config: {
       xhr.setRequestHeader("X-GTM-Token", CONFIG.token);
       xhr.timeout = 5000;
       xhr.onload = function() {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          // Success — clear retry queue for these events
-        } else {
-          // Server error — queue for retry
+        if (xhr.status < 200 || xhr.status >= 300) {
           addToRetryQueue(payload.events || [payload]);
         }
       };
@@ -154,12 +244,11 @@ function generateSDK(config: {
   function addToRetryQueue(events) {
     var q = getRetryQueue();
     events.forEach(function(evt) {
-      if (q.length < 100) q.push(evt); // cap at 100
+      if (q.length < 100) q.push(evt);
     });
     setRetryQueue(q);
   }
 
-  // Flush retry queue (on PageView)
   function flushRetryQueue() {
     var q = getRetryQueue();
     if (q.length === 0) return;
@@ -167,7 +256,8 @@ function generateSDK(config: {
     send({ events: q });
   }
 
-  // Pause when tab not visible
+  // ─── Visibility pause ───
+
   var isPaused = false;
   try {
     document.addEventListener("visibilitychange", function() {
@@ -176,19 +266,22 @@ function generateSDK(config: {
     });
   } catch(e) {}
 
-  // Main track function
+  // ─── Main track function ───
+
   function track(eventName, data) {
     if (isPaused) return;
 
-    var fbCookies = getFbCookies();
+    _fbp = getCookie("_fbp") || _fbp;
+    _fbc = getCookie("_fbc") || _fbc;
+
     var evt = {
       event_name: eventName,
       event_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).substr(2),
       event_time: Math.floor(Date.now() / 1000),
       source_url: window.location.href,
       user_data: Object.assign({
-        fbp: fbCookies.fbp,
-        fbc: fbCookies.fbc,
+        fbp: _fbp,
+        fbc: _fbc,
         client_user_agent: navigator.userAgent,
         external_id: getSessionId()
       }, (data && data.user_data) || {}),
@@ -200,17 +293,16 @@ function generateSDK(config: {
 
     queue.push(evt);
 
-    // Batch: flush after delay
     if (timer) clearTimeout(timer);
     timer = setTimeout(flush, CONFIG.batchDelay);
 
-    // Flush retry queue on PageView
     if (eventName === "PageView") {
       flushRetryQueue();
     }
   }
 
-  // Send on page unload (beacon)
+  // ─── Beacon on unload ───
+
   function onUnload() {
     if (queue.length === 0) return;
     var batch = queue.splice(0, 50);
@@ -227,14 +319,16 @@ function generateSDK(config: {
     window.addEventListener("pagehide", onUnload);
   } catch(e) {}
 
-  // Expose global API
+  // ─── Expose global API ───
+
   window.BethelGTM = {
     track: track,
     flush: flush,
     config: { pixelId: CONFIG.pixelId }
   };
 
-  // Auto-track PageView
+  // ─── Auto-track PageView (via fbq shim too) ───
+
   track("PageView");
 })();`;
 }
