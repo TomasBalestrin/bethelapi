@@ -128,55 +128,27 @@ function generateSDK(config: {
   var _fbp = ensureFbp();
   var _fbc = ensureFbc();
 
-  // ─── fbq shim (Meta Pixel Helper compatibility) ───
+  // ─── Load real Facebook Pixel (fbevents.js) for Pixel Helper detection ───
+  // This is Meta's recommended "dual pixel" approach:
+  // Browser pixel for Pixel Helper + Server CAPI for reliability.
+  // Events are deduplicated by event_id.
 
-  function setupFbqShim() {
-    if (window.fbq && window.fbq._bethel) return;
+  function loadRealFbPixel() {
+    if (window.fbq) return;
 
-    var pixelIds = [];
-    var fbqQueue = [];
-
-    function fbq() {
-      var args = Array.prototype.slice.call(arguments);
-      var command = args[0];
-
-      if (command === "init") {
-        pixelIds.push(args[1]);
-      } else if (command === "track" || command === "trackCustom") {
-        var eventName = args[1];
-        var params = args[2] || {};
-        track(eventName, { custom_data: params });
-      }
-
-      fbqQueue.push(args);
-
-      if (typeof window._fbq_callbacks === "object") {
-        for (var i = 0; i < window._fbq_callbacks.length; i++) {
-          try { window._fbq_callbacks[i].apply(null, args); } catch(e) {}
-        }
-      }
-    }
-
-    fbq.version = "2.9.174";
-    fbq.queue = fbqQueue;
-    fbq.loaded = true;
-    fbq.push = fbq;
-    fbq._bethel = true;
-    fbq.getState = function() {
-      return {
-        pixelInstances: pixelIds.map(function(id) {
-          return { pixelId: id };
-        })
-      };
-    };
-
-    window.fbq = fbq;
-    window._fbq = fbq;
+    !function(f,b,e,v,n,t,s)
+    {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+    n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+    if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version="2.0";
+    n.queue=[];t=b.createElement(e);t.async=!0;
+    t.src=v;s=b.getElementsByTagName(e)[0];
+    s.parentNode.insertBefore(t,s)}(window, document,"script",
+    "https://connect.facebook.net/en_US/fbevents.js");
 
     fbq("init", CONFIG.pixelId);
   }
 
-  setupFbqShim();
+  loadRealFbPixel();
 
   // ─── Session ID ───
 
@@ -274,9 +246,11 @@ function generateSDK(config: {
     _fbp = getCookie("_fbp") || _fbp;
     _fbc = getCookie("_fbc") || _fbc;
 
+    var eventId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).substr(2);
+
     var evt = {
       event_name: eventName,
-      event_id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).substr(2),
+      event_id: eventId,
       event_time: Math.floor(Date.now() / 1000),
       source_url: window.location.href,
       user_data: Object.assign({
@@ -292,6 +266,14 @@ function generateSDK(config: {
     };
 
     queue.push(evt);
+
+    // Fire real fbq event with same event_id for deduplication
+    if (window.fbq) {
+      try {
+        var fbqParams = Object.assign({}, (data && data.custom_data) || {});
+        fbq("track", eventName, fbqParams, { eventID: eventId });
+      } catch(e) {}
+    }
 
     if (timer) clearTimeout(timer);
     timer = setTimeout(flush, CONFIG.batchDelay);
@@ -327,7 +309,7 @@ function generateSDK(config: {
     config: { pixelId: CONFIG.pixelId }
   };
 
-  // ─── Auto-track PageView (via fbq shim too) ───
+  // ─── Auto-track PageView ───
 
   track("PageView");
 })();`;
