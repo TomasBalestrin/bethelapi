@@ -27,6 +27,36 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ data: pixels });
 }
 
+// DELETE — Delete a pixel (cascade deletes sites)
+export async function DELETE(req: NextRequest) {
+  if (!(await validateAdminAuth(req))) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json();
+    const { pixel_id } = body;
+
+    if (!pixel_id) {
+      return NextResponse.json({ error: 'pixel_id is required' }, { status: 400 });
+    }
+
+    const { error } = await supabaseAdmin
+      .from('pixels')
+      .delete()
+      .eq('id', pixel_id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error('Delete pixel error:', err);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 // POST — Create new pixel or site
 export async function POST(req: NextRequest) {
   if (!(await validateAdminAuth(req))) {
