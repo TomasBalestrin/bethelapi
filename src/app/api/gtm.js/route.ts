@@ -69,7 +69,9 @@ function generateSDK(config: {
     pixelId: "${config.pixelId}",
     batchDelay: 2000,
     maxRetries: 3,
-    retryKey: "__gtm_retry_queue"
+    retryKey: "__btl_retry",
+    viewContentScrollThreshold: 50,
+    viewContentTimeThreshold: 15
   };
 
   var queue = [];
@@ -89,12 +91,10 @@ function generateSDK(config: {
     try {
       var d = new Date();
       d.setTime(d.getTime() + days * 86400000);
-      var domain = location.hostname.replace(/^www\\./, "");
+      var domain = location.hostname.replace(/^www\\\\./, "");
       document.cookie = name + "=" + value + ";expires=" + d.toUTCString() + ";path=/;domain=." + domain + ";SameSite=Lax";
     } catch(e) {}
   }
-
-  // ─── Generate _fbp cookie (Meta browser ID) ───
 
   function ensureFbp() {
     var fbp = getCookie("_fbp");
@@ -105,8 +105,6 @@ function generateSDK(config: {
     setCookie("_fbp", fbp, 730);
     return fbp;
   }
-
-  // ─── Generate _fbc cookie from fbclid URL param ───
 
   function ensureFbc() {
     var fbc = getCookie("_fbc");
@@ -123,28 +121,21 @@ function generateSDK(config: {
     return null;
   }
 
-  // ─── Initialize cookies immediately ───
-
   var _fbp = ensureFbp();
   var _fbc = ensureFbc();
 
-  // ─── Load real Facebook Pixel (fbevents.js) for Pixel Helper detection ───
-  // This is Meta's recommended "dual pixel" approach:
-  // Browser pixel for Pixel Helper + Server CAPI for reliability.
-  // Events are deduplicated by event_id.
+  // ─── Load real Facebook Pixel (fbevents.js) for Pixel Helper ───
 
   function loadRealFbPixel() {
     if (window.fbq) return;
-
     !function(f,b,e,v,n,t,s)
     {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
     n.callMethod.apply(n,arguments):n.queue.push(arguments)};
     if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version="2.0";
     n.queue=[];t=b.createElement(e);t.async=!0;
     t.src=v;s=b.getElementsByTagName(e)[0];
-    s.parentNode.insertBefore(t,s)}(window, document,"script",
+    s.parentNode.insertBefore(t,s)}(window,document,"script",
     "https://connect.facebook.net/en_US/fbevents.js");
-
     fbq("init", CONFIG.pixelId);
   }
 
@@ -155,10 +146,10 @@ function generateSDK(config: {
   function getSessionId() {
     if (sessionId) return sessionId;
     try {
-      sessionId = sessionStorage.getItem("__gtm_sid");
+      sessionId = sessionStorage.getItem("__btl_sid");
       if (!sessionId) {
         sessionId = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).substr(2);
-        sessionStorage.setItem("__gtm_sid", sessionId);
+        sessionStorage.setItem("__btl_sid", sessionId);
       }
     } catch(e) {
       sessionId = Date.now().toString(36) + Math.random().toString(36).substr(2);
@@ -267,7 +258,7 @@ function generateSDK(config: {
 
     queue.push(evt);
 
-    // Fire real fbq event with same event_id for deduplication
+    // Fire real fbq with same event_id for deduplication
     if (window.fbq) {
       try {
         var fbqParams = Object.assign({}, (data && data.custom_data) || {});
@@ -301,6 +292,109 @@ function generateSDK(config: {
     window.addEventListener("pagehide", onUnload);
   } catch(e) {}
 
+  // ═══════════════════════════════════════════════
+  //  AUTO-TRACKING: PageView, ViewContent, ClickCTA
+  // ═══════════════════════════════════════════════
+
+  // ─── 1. PageView (immediate) ───
+  track("PageView");
+
+  // ─── 2. ViewContent (scroll >= 50% AND time >= 15s) ───
+
+  var viewContentFired = false;
+  var scrollReached = false;
+  var timeReached = false;
+  var pageLoadTime = Date.now();
+
+  function tryFireViewContent() {
+    if (viewContentFired) return;
+    if (scrollReached && timeReached) {
+      viewContentFired = true;
+      track("ViewContent", {
+        custom_data: {
+          content_name: document.title,
+          content_url: location.href
+        }
+      });
+    }
+  }
+
+  // Scroll depth tracker
+  function getScrollPercent() {
+    var h = document.documentElement;
+    var b = document.body;
+    var st = h.scrollTop || b.scrollTop;
+    var sh = h.scrollHeight || b.scrollHeight;
+    var ch = h.clientHeight || b.clientHeight;
+    if (sh <= ch) return 100;
+    return Math.round((st / (sh - ch)) * 100);
+  }
+
+  function onScroll() {
+    if (scrollReached) return;
+    if (getScrollPercent() >= CONFIG.viewContentScrollThreshold) {
+      scrollReached = true;
+      tryFireViewContent();
+    }
+  }
+
+  try {
+    window.addEventListener("scroll", onScroll, { passive: true });
+    // Check on load if page is short (already scrolled past 50%)
+    setTimeout(onScroll, 500);
+  } catch(e) {}
+
+  // Time threshold timer
+  setTimeout(function() {
+    timeReached = true;
+    tryFireViewContent();
+  }, CONFIG.viewContentTimeThreshold * 1000);
+
+  // ─── 3. ClickCTA (clicks on buttons, links, [role=button]) ───
+
+  function getCtaText(el) {
+    var text = (el.innerText || el.textContent || "").trim();
+    if (text.length > 100) text = text.substring(0, 100);
+    return text;
+  }
+
+  function findCtaElement(el) {
+    // Walk up from click target to find nearest CTA element (max 5 levels)
+    for (var i = 0; i < 5 && el; i++) {
+      if (!el.tagName) { el = el.parentElement; continue; }
+      var tag = el.tagName.toLowerCase();
+      if (tag === "button" || tag === "a") return el;
+      if (el.getAttribute && el.getAttribute("role") === "button") return el;
+      if (el.getAttribute && el.getAttribute("data-cta") !== null) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  try {
+    document.addEventListener("click", function(e) {
+      var cta = findCtaElement(e.target);
+      if (!cta) return;
+
+      var tag = cta.tagName.toLowerCase();
+      var text = getCtaText(cta);
+      var href = cta.getAttribute("href") || "";
+      var ctaId = cta.getAttribute("id") || "";
+      var ctaClasses = (cta.className && typeof cta.className === "string") ? cta.className : "";
+
+      track("ClickCTA", {
+        custom_data: {
+          cta_text: text,
+          cta_tag: tag,
+          cta_href: href,
+          cta_id: ctaId,
+          cta_classes: ctaClasses,
+          page_url: location.href
+        }
+      });
+    }, true);
+  } catch(e) {}
+
   // ─── Expose global API ───
 
   window.BethelGTM = {
@@ -309,8 +403,5 @@ function generateSDK(config: {
     config: { pixelId: CONFIG.pixelId }
   };
 
-  // ─── Auto-track PageView ───
-
-  track("PageView");
 })();`;
 }
