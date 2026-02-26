@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { supabaseAdmin } from '@/lib/supabase';
 import { validateAdminAuth } from '@/lib/auth';
 import { CreatePixelSchema, CreateSiteSchema } from '@/lib/validators';
+import { validateMetaToken } from '@/lib/meta-capi';
 
 export const runtime = 'nodejs';
 
@@ -86,6 +87,15 @@ export async function POST(req: NextRequest) {
     if (action === 'create_pixel') {
       const payload = CreatePixelSchema.parse(body);
 
+      // Validate Meta access token with a test call to the Graph API
+      const validation = await validateMetaToken(payload.pixel_id, payload.access_token);
+      if (!validation.valid) {
+        return NextResponse.json(
+          { error: `Token Meta inválido: ${validation.error}`, meta_validation: false },
+          { status: 422 }
+        );
+      }
+
       const { data, error } = await supabaseAdmin
         .from('pixels')
         .insert({
@@ -103,7 +113,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: error.message }, { status: 500 });
       }
 
-      return NextResponse.json({ success: true, data }, { status: 201 });
+      return NextResponse.json(
+        { success: true, data, meta_pixel_name: validation.pixelName },
+        { status: 201 }
+      );
     }
 
     if (action === 'create_site') {

@@ -82,6 +82,8 @@ export function PixelsPanel() {
   const [pixelName, setPixelName] = useState('');
   const [pixelId, setPixelId] = useState('');
   const [accessToken, setAccessToken] = useState('');
+  const [creatingPixel, setCreatingPixel] = useState(false);
+  const [pixelError, setPixelError] = useState<string | null>(null);
 
   // Create site form
   const [siteDomain, setSiteDomain] = useState('');
@@ -118,6 +120,8 @@ export function PixelsPanel() {
 
   const createPixel = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreatingPixel(true);
+    setPixelError(null);
     try {
       const res = await fetch('/api/admin/pixels', {
         method: 'POST',
@@ -135,6 +139,7 @@ export function PixelsPanel() {
         setPixelName('');
         setPixelId('');
         setAccessToken('');
+        setPixelError(null);
         await fetchPixels();
         // Auto-expand the new pixel
         if (result.data?.id) {
@@ -142,10 +147,13 @@ export function PixelsPanel() {
         }
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao criar pixel');
+        setPixelError(err.error || 'Erro ao criar pixel');
       }
     } catch (err) {
       console.error('Create pixel error:', err);
+      setPixelError('Erro de conexão ao criar pixel.');
+    } finally {
+      setCreatingPixel(false);
     }
   };
 
@@ -271,13 +279,30 @@ export function PixelsPanel() {
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500"
             />
           </div>
-          <div className="flex gap-2">
-            <button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition">
-              Criar Pixel
+          {pixelError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2.5 text-sm text-red-300">
+              {pixelError}
+            </div>
+          )}
+          <div className="flex gap-2 items-center">
+            <button
+              type="submit"
+              disabled={creatingPixel}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {creatingPixel ? 'Validando token...' : 'Criar Pixel'}
             </button>
-            <button type="button" onClick={() => setShowCreatePixel(false)} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition">
+            <button
+              type="button"
+              onClick={() => { setShowCreatePixel(false); setPixelError(null); }}
+              disabled={creatingPixel}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition disabled:opacity-50"
+            >
               Cancelar
             </button>
+            {creatingPixel && (
+              <span className="text-xs text-gray-400">Verificando access token na Meta API...</span>
+            )}
           </div>
         </form>
       )}

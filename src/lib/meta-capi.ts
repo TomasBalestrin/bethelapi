@@ -26,6 +26,36 @@ interface MetaResponse {
   };
 }
 
+// Validate a Meta Pixel access token by making a test call to the Graph API
+export async function validateMetaToken(
+  pixelId: string,
+  accessToken: string
+): Promise<{ valid: boolean; pixelName?: string; error?: string }> {
+  try {
+    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(pixelId)}?fields=id,name&access_token=${encodeURIComponent(accessToken)}`;
+    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(10000) });
+    const data = await res.json();
+
+    if (data.error) {
+      return {
+        valid: false,
+        error: data.error.message || 'Token inválido ou sem permissão para este pixel.',
+      };
+    }
+
+    if (data.id) {
+      return { valid: true, pixelName: data.name || undefined };
+    }
+
+    return { valid: false, error: 'Resposta inesperada da Meta API.' };
+  } catch (err) {
+    return {
+      valid: false,
+      error: err instanceof Error ? err.message : 'Falha na conexão com a Meta API.',
+    };
+  }
+}
+
 // Format a single event for Meta CAPI
 export function formatForCapi(event: Event): MetaEventData {
   const enriched = (event.payload_enriched || event.payload_raw) as Record<string, unknown>;
