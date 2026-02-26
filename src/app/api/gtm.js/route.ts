@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { minify } from 'terser';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
+
+// In-memory cache: domain -> { minified, expiresAt }
+const sdkCache = new Map<string, { code: string; expiresAt: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes (matches Cache-Control)
 
 export async function GET(req: NextRequest) {
   const domain = req.nextUrl.searchParams.get('site');
@@ -10,6 +15,19 @@ export async function GET(req: NextRequest) {
     return new NextResponse('// Missing ?site= parameter', {
       status: 400,
       headers: { 'Content-Type': 'application/javascript' },
+    });
+  }
+
+  // Check in-memory cache first
+  const cached = sdkCache.get(domain);
+  if (cached && cached.expiresAt > Date.now()) {
+    return new NextResponse(cached.code, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/javascript',
+        'Cache-Control': 'public, max-age=300, s-maxage=300',
+        'X-SDK-Cache': 'hit',
+      },
     });
   }
 
@@ -45,11 +63,30 @@ export async function GET(req: NextRequest) {
 
   const sdk = generateSDK(config);
 
-  return new NextResponse(sdk, {
+  // Minify the SDK
+  let output = sdk;
+  try {
+    const result = await minify(sdk, {
+      compress: { drop_console: false, passes: 2 },
+      mangle: { toplevel: false },
+      format: { comments: false },
+    });
+    if (result.code) {
+      output = result.code;
+    }
+  } catch (err) {
+    console.error('SDK minification failed, serving unminified:', err);
+  }
+
+  // Store in cache
+  sdkCache.set(domain, { code: output, expiresAt: Date.now() + CACHE_TTL_MS });
+
+  return new NextResponse(output, {
     status: 200,
     headers: {
       'Content-Type': 'application/javascript',
       'Cache-Control': 'public, max-age=300, s-maxage=300',
+      'X-SDK-Cache': 'miss',
     },
   });
 }
