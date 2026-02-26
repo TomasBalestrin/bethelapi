@@ -26,6 +26,85 @@ interface MetaResponse {
   };
 }
 
+// Validate a Meta Pixel access token by making a test call to the Graph API
+export async function validateMetaToken(
+  pixelId: string,
+  accessToken: string
+): Promise<{ valid: boolean; pixelName?: string; error?: string }> {
+  try {
+    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(pixelId)}?fields=id,name&access_token=${encodeURIComponent(accessToken)}`;
+    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(10000) });
+    const data = await res.json();
+
+    if (data.error) {
+      return {
+        valid: false,
+        error: data.error.message || 'Token inválido ou sem permissão para este pixel.',
+      };
+    }
+
+    if (data.id) {
+      return { valid: true, pixelName: data.name || undefined };
+    }
+
+    return { valid: false, error: 'Resposta inesperada da Meta API.' };
+  } catch (err) {
+    return {
+      valid: false,
+      error: err instanceof Error ? err.message : 'Falha na conexão com a Meta API.',
+    };
+  }
+}
+
+// Send a test PageView event to Meta CAPI to validate the full pipeline
+export async function sendTestEvent(
+  pixelId: string,
+  accessToken: string
+): Promise<{ success: boolean; eventsReceived?: number; error?: string }> {
+  const testEventId = `bethel_test_${Date.now()}`;
+  const payload = {
+    data: [
+      {
+        event_name: 'PageView',
+        event_time: Math.floor(Date.now() / 1000),
+        event_id: testEventId,
+        event_source_url: 'https://test.bethel-gtm.com',
+        action_source: 'website',
+        user_data: {
+          client_ip_address: '0.0.0.0',
+          client_user_agent: 'BethelGTM/TestEvent',
+        },
+      },
+    ],
+    access_token: accessToken,
+  };
+
+  try {
+    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(pixelId)}/events`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data: MetaResponse = await res.json();
+
+    if (data.error) {
+      return { success: false, error: data.error.message };
+    }
+
+    return {
+      success: true,
+      eventsReceived: data.events_received ?? 1,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Falha na conexão com a Meta API.',
+    };
+  }
+}
+
 // Format a single event for Meta CAPI
 export function formatForCapi(event: Event): MetaEventData {
   const enriched = (event.payload_enriched || event.payload_raw) as Record<string, unknown>;

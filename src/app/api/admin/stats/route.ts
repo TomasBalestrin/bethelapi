@@ -11,12 +11,14 @@ export async function GET(req: NextRequest) {
 
   const params = req.nextUrl.searchParams;
   const site_id = params.get('site_id') || undefined;
+  const pixel_uuid = params.get('pixel_uuid') || undefined;
   const hours = parseInt(params.get('hours') || '24', 10);
 
   try {
     const { data, error } = await supabaseAdmin.rpc('get_dashboard_stats', {
       p_site_id: site_id || null,
       p_hours: hours,
+      p_pixel_uuid: pixel_uuid || null,
     });
 
     if (error) {
@@ -34,6 +36,10 @@ export async function GET(req: NextRequest) {
 
     if (site_id) {
       timelineQuery = timelineQuery.eq('site_id', site_id);
+    }
+
+    if (pixel_uuid) {
+      timelineQuery = timelineQuery.eq('pixel_uuid', pixel_uuid);
     }
 
     const { data: timeline } = await timelineQuery;

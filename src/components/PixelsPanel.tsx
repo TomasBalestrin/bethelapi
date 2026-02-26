@@ -77,11 +77,15 @@ export function PixelsPanel() {
   const [showEventsFor, setShowEventsFor] = useState<string | null>(null);
   const [deletingPixel, setDeletingPixel] = useState<string | null>(null);
   const [deletingSite, setDeletingSite] = useState<string | null>(null);
+  const [testingPixel, setTestingPixel] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<{ pixelId: string; success: boolean; message: string } | null>(null);
 
   // Create pixel form
   const [pixelName, setPixelName] = useState('');
   const [pixelId, setPixelId] = useState('');
   const [accessToken, setAccessToken] = useState('');
+  const [creatingPixel, setCreatingPixel] = useState(false);
+  const [pixelError, setPixelError] = useState<string | null>(null);
 
   // Create site form
   const [siteDomain, setSiteDomain] = useState('');
@@ -118,6 +122,8 @@ export function PixelsPanel() {
 
   const createPixel = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCreatingPixel(true);
+    setPixelError(null);
     try {
       const res = await fetch('/api/admin/pixels', {
         method: 'POST',
@@ -135,6 +141,7 @@ export function PixelsPanel() {
         setPixelName('');
         setPixelId('');
         setAccessToken('');
+        setPixelError(null);
         await fetchPixels();
         // Auto-expand the new pixel
         if (result.data?.id) {
@@ -142,10 +149,13 @@ export function PixelsPanel() {
         }
       } else {
         const err = await res.json();
-        alert(err.error || 'Erro ao criar pixel');
+        setPixelError(err.error || 'Erro ao criar pixel');
       }
     } catch (err) {
       console.error('Create pixel error:', err);
+      setPixelError('Erro de conexão ao criar pixel.');
+    } finally {
+      setCreatingPixel(false);
     }
   };
 
@@ -218,6 +228,40 @@ export function PixelsPanel() {
     }
   };
 
+  const sendTestEvent = async (pixelUuid: string) => {
+    setTestingPixel(pixelUuid);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/admin/pixels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'test_event', pixel_uuid: pixelUuid }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestResult({
+          pixelId: pixelUuid,
+          success: true,
+          message: `Evento recebido pela Meta (${data.events_received} evento${data.events_received !== 1 ? 's' : ''}).`,
+        });
+      } else {
+        setTestResult({
+          pixelId: pixelUuid,
+          success: false,
+          message: data.error || 'Falha ao enviar evento teste.',
+        });
+      }
+    } catch {
+      setTestResult({
+        pixelId: pixelUuid,
+        success: false,
+        message: 'Erro de conexão ao enviar evento teste.',
+      });
+    } finally {
+      setTestingPixel(null);
+    }
+  };
+
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
@@ -271,13 +315,30 @@ export function PixelsPanel() {
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500"
             />
           </div>
-          <div className="flex gap-2">
-            <button type="submit" className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition">
-              Criar Pixel
+          {pixelError && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2.5 text-sm text-red-300">
+              {pixelError}
+            </div>
+          )}
+          <div className="flex gap-2 items-center">
+            <button
+              type="submit"
+              disabled={creatingPixel}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {creatingPixel ? 'Validando token...' : 'Criar Pixel'}
             </button>
-            <button type="button" onClick={() => setShowCreatePixel(false)} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition">
+            <button
+              type="button"
+              onClick={() => { setShowCreatePixel(false); setPixelError(null); }}
+              disabled={creatingPixel}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition disabled:opacity-50"
+            >
               Cancelar
             </button>
+            {creatingPixel && (
+              <span className="text-xs text-gray-400">Verificando access token na Meta API...</span>
+            )}
           </div>
         </form>
       )}
@@ -311,6 +372,14 @@ export function PixelsPanel() {
                 </div>
                 <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
                   <button
+                    onClick={() => sendTestEvent(pixel.id)}
+                    disabled={testingPixel === pixel.id}
+                    className="px-2.5 py-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-300 rounded text-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Enviar evento teste para a Meta"
+                  >
+                    {testingPixel === pixel.id ? 'Enviando...' : 'Testar'}
+                  </button>
+                  <button
                     onClick={() => setShowEventsFor(showEventsFor === pixel.id ? null : pixel.id)}
                     className="px-2.5 py-1 bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 rounded text-xs transition"
                   >
@@ -326,6 +395,23 @@ export function PixelsPanel() {
                   </button>
                 </div>
               </div>
+
+              {/* ── Test Event Result ── */}
+              {testResult && testResult.pixelId === pixel.id && (
+                <div className={`px-5 py-2.5 border-t text-sm flex items-center justify-between ${
+                  testResult.success
+                    ? 'bg-green-500/10 border-green-500/30 text-green-300'
+                    : 'bg-red-500/10 border-red-500/30 text-red-300'
+                }`}>
+                  <span>{testResult.success ? 'Integração OK' : 'Falha'} — {testResult.message}</span>
+                  <button
+                    onClick={() => setTestResult(null)}
+                    className="text-xs opacity-60 hover:opacity-100 ml-3 shrink-0"
+                  >
+                    Fechar
+                  </button>
+                </div>
+              )}
 
               {/* ── Events Panel (independent of expand) ── */}
               {showEventsFor === pixel.id && (
