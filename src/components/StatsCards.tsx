@@ -11,14 +11,38 @@ interface StatsResponse extends DashboardStats {
   events_per_hour: Record<string, { total: number; sent: number; failed: number }>;
 }
 
+interface PixelWithSites {
+  id: string;
+  name: string;
+  pixel_id: string;
+  sites: { id: string; domain: string }[];
+}
+
+type FilterValue = { type: 'all' } | { type: 'pixel'; pixel_uuid: string } | { type: 'site'; site_id: string };
+
 export function StatsCards({ autoRefresh }: Props) {
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [hours, setHours] = useState(24);
   const [loading, setLoading] = useState(true);
+  const [pixels, setPixels] = useState<PixelWithSites[]>([]);
+  const [filter, setFilter] = useState<FilterValue>({ type: 'all' });
+
+  useEffect(() => {
+    fetch('/api/admin/pixels')
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.data) setPixels(data.data);
+      })
+      .catch(() => {});
+  }, []);
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await fetch(`/api/admin/stats?hours=${hours}`);
+      const params = new URLSearchParams({ hours: String(hours) });
+      if (filter.type === 'site') params.set('site_id', filter.site_id);
+      if (filter.type === 'pixel') params.set('pixel_uuid', filter.pixel_uuid);
+
+      const res = await fetch(`/api/admin/stats?${params}`);
       if (res.ok) {
         const data = await res.json();
         setStats(data);
@@ -28,7 +52,7 @@ export function StatsCards({ autoRefresh }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [hours]);
+  }, [hours, filter]);
 
   useEffect(() => {
     fetchStats();
@@ -59,23 +83,67 @@ export function StatsCards({ autoRefresh }: Props) {
     red: 'bg-red-500/10 border-red-500/30 text-red-400',
   };
 
+  const handleFilterChange = (value: string) => {
+    if (value === 'all') {
+      setFilter({ type: 'all' });
+    } else if (value.startsWith('pixel:')) {
+      setFilter({ type: 'pixel', pixel_uuid: value.slice(6) });
+    } else if (value.startsWith('site:')) {
+      setFilter({ type: 'site', site_id: value.slice(5) });
+    }
+  };
+
+  const currentFilterValue =
+    filter.type === 'all'
+      ? 'all'
+      : filter.type === 'pixel'
+        ? `pixel:${filter.pixel_uuid}`
+        : `site:${filter.site_id}`;
+
   return (
     <div className="space-y-6">
-      {/* Time range selector */}
-      <div className="flex gap-2">
-        {[1, 6, 12, 24, 48, 168].map((h) => (
-          <button
-            key={h}
-            onClick={() => setHours(h)}
-            className={`px-3 py-1 rounded text-sm ${
-              hours === h
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-800 text-gray-400 hover:text-white'
-            }`}
+      {/* Filters row */}
+      <div className="flex flex-wrap items-center gap-4">
+        {/* Pixel/Site filter */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-400">Filtrar:</label>
+          <select
+            value={currentFilterValue}
+            onChange={(e) => handleFilterChange(e.target.value)}
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:border-blue-500 focus:outline-none min-w-[200px]"
           >
-            {h < 24 ? `${h}h` : `${h / 24}d`}
-          </button>
-        ))}
+            <option value="all">Todos os pixels</option>
+            {pixels.map((pixel) => (
+              <optgroup key={pixel.id} label={`${pixel.name} (${pixel.pixel_id})`}>
+                <option value={`pixel:${pixel.id}`}>
+                  {pixel.name} — todos os sites
+                </option>
+                {pixel.sites?.map((site) => (
+                  <option key={site.id} value={`site:${site.id}`}>
+                    {site.domain}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+
+        {/* Time range selector */}
+        <div className="flex gap-2">
+          {[1, 6, 12, 24, 48, 168].map((h) => (
+            <button
+              key={h}
+              onClick={() => setHours(h)}
+              className={`px-3 py-1 rounded text-sm ${
+                hours === h
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:text-white'
+              }`}
+            >
+              {h < 24 ? `${h}h` : `${h / 24}d`}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Cards */}
