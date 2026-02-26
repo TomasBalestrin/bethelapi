@@ -5,6 +5,7 @@ import { validateIngestToken, getClientIp } from '@/lib/auth';
 import { hashUserData, hashIp } from '@/lib/hash';
 import { IngestEventSchema, IngestBatchSchema } from '@/lib/validators';
 import { processEventQueue } from '@/lib/dispatcher';
+import { checkIngestRateLimit } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
@@ -22,7 +23,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: auth.error }, { status: 403 });
     }
 
-    // 2. Parse body
+    // 2. Rate limit check
+    const clientIpForLimit = getClientIp(req);
+    const rateLimited = checkIngestRateLimit(token, clientIpForLimit);
+    if (rateLimited) {
+      return NextResponse.json(
+        { error: rateLimited.message },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rateLimited.retryAfter) },
+        }
+      );
+    }
+
+    // 3. Parse body
     const body = await req.json();
 
     // Support both single event and batch
@@ -31,12 +45,12 @@ export async function POST(req: NextRequest) {
       ? IngestBatchSchema.parse(body).events
       : [IngestEventSchema.parse(body)];
 
-    // 3. Get client info
-    const clientIp = getClientIp(req);
+    // 4. Get client info
+    const clientIp = clientIpForLimit;
     const userAgent = req.headers.get('user-agent') || '';
     const ipHash = hashIp(clientIp);
 
-    // 4. Process each event
+    // 5. Process each event
     const rows = events.map((event) => {
       const eventId = event.event_id || uuidv4();
 
@@ -75,7 +89,7 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // 5. Insert into events table
+    // 6. Insert into events table
     const { data, error } = await supabaseAdmin
       .from('events')
       .insert(rows)
@@ -93,7 +107,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to persist events' }, { status: 500 });
     }
 
-    // 6. Fire-and-forget: trigger dispatcher inline (don't await)
+    // 7. Fire-and-forget: trigger dispatcher inline (don't await)
     processEventQueue().catch((err) =>
       console.error('Inline dispatch error:', err)
     );
