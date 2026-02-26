@@ -14,6 +14,17 @@ export async function GET(req: NextRequest) {
   const pixel_uuid = params.get('pixel_uuid') || undefined;
   const hours = parseInt(params.get('hours') || '24', 10);
 
+  const defaultStats = {
+    total_events: 0,
+    by_status: {},
+    by_event_name: {},
+    avg_latency_ms: 0,
+    dlq_count: 0,
+    success_rate: 100,
+  };
+
+  // Fetch stats from RPC — fall back to defaults if the function is missing or errors
+  let statsData = defaultStats;
   try {
     const { data, error } = await supabaseAdmin.rpc('get_dashboard_stats', {
       p_site_id: site_id || null,
@@ -22,11 +33,17 @@ export async function GET(req: NextRequest) {
     });
 
     if (error) {
-      console.error('Stats error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error('Stats RPC error (using defaults):', error.message);
+    } else if (data) {
+      statsData = data;
     }
+  } catch (err) {
+    console.error('Stats RPC exception (using defaults):', err);
+  }
 
-    // Also get recent events timeline (events per hour)
+  // Fetch recent events timeline (events per hour)
+  const hourlyBuckets: Record<string, { total: number; sent: number; failed: number }> = {};
+  try {
     const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
     let timelineQuery = supabaseAdmin
       .from('events')
@@ -44,8 +61,6 @@ export async function GET(req: NextRequest) {
 
     const { data: timeline } = await timelineQuery;
 
-    // Aggregate into hourly buckets
-    const hourlyBuckets: Record<string, { total: number; sent: number; failed: number }> = {};
     if (timeline) {
       for (const event of timeline) {
         const hour = new Date(event.created_at).toISOString().substring(0, 13);
@@ -57,13 +72,12 @@ export async function GET(req: NextRequest) {
         if (event.status === 'failed' || event.status === 'dlq') hourlyBuckets[hour].failed++;
       }
     }
-
-    return NextResponse.json({
-      ...data,
-      events_per_hour: hourlyBuckets,
-    });
   } catch (err) {
-    console.error('Stats error:', err);
-    return NextResponse.json({ error: 'Failed to get stats' }, { status: 500 });
+    console.error('Timeline query error:', err);
   }
+
+  return NextResponse.json({
+    ...statsData,
+    events_per_hour: hourlyBuckets,
+  });
 }
