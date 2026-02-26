@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase';
 import { validateAdminAuth } from '@/lib/auth';
 import { CreatePixelSchema, CreateSiteSchema } from '@/lib/validators';
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
           name: payload.name,
           pixel_id: payload.pixel_id,
           access_token: payload.access_token,
+          webhook_secret: randomUUID(),
         })
         .select()
         .single();

@@ -14,6 +14,7 @@ export interface Pixel {
   name: string;
   pixel_id: string;
   access_token: string;
+  webhook_secret?: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
