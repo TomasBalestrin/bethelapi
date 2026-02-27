@@ -32,7 +32,7 @@ export async function validateMetaToken(
   accessToken: string
 ): Promise<{ valid: boolean; pixelName?: string; error?: string }> {
   try {
-    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(pixelId)}?fields=id,name&access_token=${encodeURIComponent(accessToken)}`;
+    const url = `https://graph.facebook.com/v22.0/${encodeURIComponent(pixelId)}?fields=id,name&access_token=${encodeURIComponent(accessToken)}`;
     const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(10000) });
     const data = await res.json();
 
@@ -80,7 +80,7 @@ export async function sendTestEvent(
   };
 
   try {
-    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(pixelId)}/events`;
+    const url = `https://graph.facebook.com/v22.0/${encodeURIComponent(pixelId)}/events`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -120,7 +120,7 @@ export function formatForCapi(event: Event): MetaEventData {
   };
 }
 
-// Send batch of events to Meta CAPI v19
+// Send batch of events to Meta CAPI v22
 export async function sendToMetaCapi(
   events: Event[],
   pixel: Pixel
@@ -129,7 +129,7 @@ export async function sendToMetaCapi(
     data: events.map(formatForCapi),
   };
 
-  const url = `https://graph.facebook.com/v19.0/${pixel.pixel_id}/events`;
+  const url = `https://graph.facebook.com/v22.0/${pixel.pixel_id}/events`;
 
   const res = await fetch(url, {
     method: 'POST',
