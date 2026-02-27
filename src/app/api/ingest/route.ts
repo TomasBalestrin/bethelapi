@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
         ...event,
         user_data: {
           ...hashedUserData,
-          client_ip_address: clientIp,
+          client_ip_address: ipHash,
           client_user_agent: userAgent,
         },
         source_url: event.source_url,

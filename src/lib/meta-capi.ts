@@ -111,7 +111,7 @@ export function formatForCapi(event: Event): MetaEventData {
 
   return {
     event_name: event.event_name,
-    event_time: Math.floor(new Date(event.created_at).getTime() / 1000),
+    event_time: (enriched.event_time as number) || Math.floor(new Date(event.created_at).getTime() / 1000),
     event_id: event.event_id,
     event_source_url: enriched.source_url as string | undefined,
     action_source: 'website',

@@ -38,9 +38,7 @@ export async function validateAdminAuth(req: NextRequest): Promise<boolean> {
   // 1. Check admin secret (for programmatic access)
   const secret = process.env.ADMIN_SECRET;
   if (secret) {
-    const headerSecret =
-      req.headers.get('x-admin-secret') ||
-      req.nextUrl.searchParams.get('admin_secret');
+    const headerSecret = req.headers.get('x-admin-secret');
     if (headerSecret === secret) return true;
   }
 

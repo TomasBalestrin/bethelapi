@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { PagTrustWebhookSchema } from '@/lib/pagtrust/schema';
@@ -13,28 +14,11 @@ export async function POST(
 ) {
   try {
     const { siteId } = await params;
-    const body = await req.json();
 
-    // 1. Quick filter: only process PURCHASE_APPROVED
-    if (body.event !== 'PURCHASE_APPROVED') {
-      return NextResponse.json({ success: true, action: 'ignored' });
-    }
+    // 1. Read raw body for HMAC validation before parsing JSON
+    const rawBody = await req.text();
 
-    // 2. Validate payload with Zod
-    const parsed = PagTrustWebhookSchema.safeParse(body);
-    if (!parsed.success) {
-      console.warn('PagTrust webhook: invalid payload', parsed.error.issues);
-      return NextResponse.json({ success: true, action: 'ignored' });
-    }
-
-    const payload = parsed.data;
-
-    // 3. Only process APPROVED status
-    if (payload.data.purchase.status !== 'APPROVED') {
-      return NextResponse.json({ success: true, action: 'ignored' });
-    }
-
-    // 4. Verify site exists and is active
+    // 2. Verify site exists and is active
     const { data: site } = await supabaseAdmin
       .from('sites')
       .select('id, pixel_uuid, is_active')
@@ -45,10 +29,10 @@ export async function POST(
       return NextResponse.json({ error: 'Site not found' }, { status: 404 });
     }
 
-    // 5. Verify pixel is active
+    // 3. Verify pixel is active and get webhook_secret
     const { data: pixel } = await supabaseAdmin
       .from('pixels')
-      .select('id, is_active')
+      .select('id, is_active, webhook_secret')
       .eq('id', site.pixel_uuid)
       .single();
 
@@ -56,9 +40,56 @@ export async function POST(
       return NextResponse.json({ error: 'Pixel not found or inactive' }, { status: 404 });
     }
 
+    // 4. Validate webhook signature (HMAC-SHA256)
+    if (pixel.webhook_secret) {
+      const signature = req.headers.get('x-webhook-signature');
+      if (!signature) {
+        return NextResponse.json({ success: true, action: 'unauthorized' });
+      }
+
+      const expected = createHmac('sha256', pixel.webhook_secret)
+        .update(rawBody)
+        .digest('hex');
+
+      const sigValue = signature.startsWith('sha256=')
+        ? signature.slice(7)
+        : signature;
+
+      if (sigValue !== expected) {
+        return NextResponse.json({ success: true, action: 'unauthorized' });
+      }
+    }
+
+    // 5. Parse JSON body
+    let body: unknown;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ success: true, action: 'ignored' });
+    }
+
+    // 6. Quick filter: only process PURCHASE_APPROVED
+    if ((body as Record<string, unknown>).event !== 'PURCHASE_APPROVED') {
+      return NextResponse.json({ success: true, action: 'ignored' });
+    }
+
+    // 7. Validate payload with Zod
+    const parsed = PagTrustWebhookSchema.safeParse(body);
+    if (!parsed.success) {
+      console.warn('PagTrust webhook: invalid payload', parsed.error.issues);
+      return NextResponse.json({ success: true, action: 'ignored' });
+    }
+
+    const payload = parsed.data;
+
+    // 8. Only process APPROVED status
+    if (payload.data.purchase.status !== 'APPROVED') {
+      return NextResponse.json({ success: true, action: 'ignored' });
+    }
+
     const transaction = payload.data.purchase.transaction;
 
-    // 6. Deduplication: check if this transaction was already processed via webhook
+    // 9. Deduplication: check if this transaction was already processed via webhook
     const { data: duplicate } = await supabaseAdmin
       .from('events')
       .select('event_id')
@@ -77,7 +108,7 @@ export async function POST(
       });
     }
 
-    // 7. Reconciliation: look for held client Purchase event
+    // 10. Reconciliation: look for held client Purchase event
     const heldEvent = await reconcileWithClientEvent(supabaseAdmin, site.id, transaction);
 
     if (heldEvent) {
@@ -119,7 +150,7 @@ export async function POST(
       });
     }
 
-    // 8. No matching client event — create new server-side event
+    // 11. No matching client event — create new server-side event
     const newEvent = mapPagTrustToEvent(payload, site.id, site.pixel_uuid);
 
     const { error } = await supabaseAdmin.from('events').insert(newEvent);
