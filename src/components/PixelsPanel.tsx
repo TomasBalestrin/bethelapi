@@ -498,6 +498,7 @@ export function PixelsPanel() {
                     <div className="divide-y divide-gray-800">
                       {pixel.sites.map((site) => {
                         const snippet = `<script src="${typeof window !== 'undefined' ? window.location.origin : ''}/api/gtm.js?site=${site.domain}" async></script>`;
+                        const webhookUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/api/webhook/${site.id}`;
                         return (
                           <div key={site.id} className="px-5 py-3">
                             <div className="flex items-center justify-between">
@@ -544,6 +545,25 @@ export function PixelsPanel() {
                               <code className="text-[11px] text-green-300 block bg-gray-950 px-3 py-2 rounded-lg overflow-x-auto font-mono">
                                 {snippet}
                               </code>
+                            </div>
+
+                            {/* Webhook PagTrust */}
+                            <div className="mt-2">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-[11px] text-gray-500">Webhook PagTrust:</span>
+                                <button
+                                  onClick={() => copyToClipboard(webhookUrl, `webhook-${site.id}`)}
+                                  className="text-[11px] text-blue-400 hover:text-blue-300"
+                                >
+                                  {copiedId === `webhook-${site.id}` ? 'Copiado!' : 'Copiar'}
+                                </button>
+                              </div>
+                              <code className="text-[11px] text-yellow-300 block bg-gray-950 px-3 py-2 rounded-lg overflow-x-auto font-mono">
+                                {webhookUrl}
+                              </code>
+                              <p className="text-[10px] text-gray-600 mt-1">
+                                Cole na PagTrust: Integrações &rarr; Webhooks &rarr; URL de postback. Selecione &quot;Compra Aprovada&quot;.
+                              </p>
                             </div>
                           </div>
                         );
