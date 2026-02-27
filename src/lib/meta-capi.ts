@@ -26,15 +26,39 @@ interface MetaResponse {
   };
 }
 
-// Validate a Meta Pixel access token by making a test call to the Graph API
+// Validate a Meta Pixel access token by sending a test event to the CAPI endpoint.
+// Tokens generated from Events Manager only have permission to POST events,
+// not to read pixel metadata via GET, so we validate using the events endpoint.
 export async function validateMetaToken(
   pixelId: string,
   accessToken: string
 ): Promise<{ valid: boolean; pixelName?: string; error?: string }> {
   try {
-    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(pixelId)}?fields=id,name&access_token=${encodeURIComponent(accessToken)}`;
-    const res = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(10000) });
-    const data = await res.json();
+    const url = `https://graph.facebook.com/v22.0/${encodeURIComponent(pixelId)}/events`;
+    const payload = {
+      data: [
+        {
+          event_name: 'PageView',
+          event_time: Math.floor(Date.now() / 1000),
+          event_id: `bethel_validate_${Date.now()}`,
+          event_source_url: 'https://validate.bethel-gtm.com',
+          action_source: 'website',
+          user_data: {
+            client_ip_address: '0.0.0.0',
+            client_user_agent: 'BethelGTM/Validation',
+          },
+        },
+      ],
+      access_token: accessToken,
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15000),
+    });
+    const data: MetaResponse = await res.json();
 
     if (data.error) {
       return {
@@ -43,8 +67,8 @@ export async function validateMetaToken(
       };
     }
 
-    if (data.id) {
-      return { valid: true, pixelName: data.name || undefined };
+    if (data.events_received !== undefined && data.events_received > 0) {
+      return { valid: true };
     }
 
     return { valid: false, error: 'Resposta inesperada da Meta API.' };
@@ -80,7 +104,7 @@ export async function sendTestEvent(
   };
 
   try {
-    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(pixelId)}/events`;
+    const url = `https://graph.facebook.com/v22.0/${encodeURIComponent(pixelId)}/events`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -120,7 +144,7 @@ export function formatForCapi(event: Event): MetaEventData {
   };
 }
 
-// Send batch of events to Meta CAPI v19
+// Send batch of events to Meta CAPI v22
 export async function sendToMetaCapi(
   events: Event[],
   pixel: Pixel
@@ -129,7 +153,7 @@ export async function sendToMetaCapi(
     data: events.map(formatForCapi),
   };
 
-  const url = `https://graph.facebook.com/v19.0/${pixel.pixel_id}/events`;
+  const url = `https://graph.facebook.com/v22.0/${pixel.pixel_id}/events`;
 
   const res = await fetch(url, {
     method: 'POST',
