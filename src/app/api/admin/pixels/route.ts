@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
     if (action === 'create_pixel') {
       const payload = CreatePixelSchema.parse(body);
 
-      // Validate Meta access token with a test call to the Graph API
+      // Validate Meta access token by sending a test event to the CAPI endpoint
       const validation = await validateMetaToken(payload.pixel_id, payload.access_token);
       if (!validation.valid) {
         return NextResponse.json(
@@ -117,7 +117,7 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json(
-        { success: true, data, meta_pixel_name: validation.pixelName },
+        { success: true, data },
         { status: 201 }
       );
     }
