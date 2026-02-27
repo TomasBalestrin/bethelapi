@@ -7,6 +7,7 @@ interface Pixel {
   name: string;
   pixel_id: string;
   access_token: string;
+  pagtrust_hottok?: string;
   is_active: boolean;
   created_at: string;
   sites: Site[];
@@ -84,8 +85,14 @@ export function PixelsPanel() {
   const [pixelName, setPixelName] = useState('');
   const [pixelId, setPixelId] = useState('');
   const [accessToken, setAccessToken] = useState('');
+  const [pagtrustHottok, setPagtrustHottok] = useState('');
   const [creatingPixel, setCreatingPixel] = useState(false);
   const [pixelError, setPixelError] = useState<string | null>(null);
+
+  // Hottok edit state
+  const [editingHottok, setEditingHottok] = useState<string | null>(null);
+  const [hottokValue, setHottokValue] = useState('');
+  const [savingHottok, setSavingHottok] = useState(false);
 
   // Create site form
   const [siteDomain, setSiteDomain] = useState('');
@@ -133,6 +140,7 @@ export function PixelsPanel() {
           name: pixelName,
           pixel_id: pixelId,
           access_token: accessToken,
+          ...(pagtrustHottok ? { pagtrust_hottok: pagtrustHottok } : {}),
         }),
       });
       if (res.ok) {
@@ -141,6 +149,7 @@ export function PixelsPanel() {
         setPixelName('');
         setPixelId('');
         setAccessToken('');
+        setPagtrustHottok('');
         setPixelError(null);
         await fetchPixels();
         // Auto-expand the new pixel
@@ -262,6 +271,32 @@ export function PixelsPanel() {
     }
   };
 
+  const saveHottok = async (pixelUuid: string) => {
+    setSavingHottok(true);
+    try {
+      const res = await fetch('/api/admin/pixels', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update_hottok',
+          pixel_uuid: pixelUuid,
+          pagtrust_hottok: hottokValue,
+        }),
+      });
+      if (res.ok) {
+        setEditingHottok(null);
+        await fetchPixels();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Erro ao salvar hottok');
+      }
+    } catch (err) {
+      console.error('Save hottok error:', err);
+    } finally {
+      setSavingHottok(false);
+    }
+  };
+
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
@@ -289,7 +324,7 @@ export function PixelsPanel() {
       {showCreatePixel && (
         <form onSubmit={createPixel} className="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-4">
           <h3 className="font-medium">Cadastrar Pixel Meta</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input
               type="text"
               value={pixelName}
@@ -312,6 +347,13 @@ export function PixelsPanel() {
               onChange={(e) => setAccessToken(e.target.value)}
               placeholder="Access Token"
               required
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500"
+            />
+            <input
+              type="text"
+              value={pagtrustHottok}
+              onChange={(e) => setPagtrustHottok(e.target.value)}
+              placeholder="PagTrust Hottok (opcional)"
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500"
             />
           </div>
@@ -462,6 +504,59 @@ export function PixelsPanel() {
                         <span className="text-gray-300">{pixel.sites?.length || 0}</span>
                       </div>
                     </div>
+                  </div>
+
+                  {/* PagTrust Hottok */}
+                  <div className="px-5 py-3 border-t border-gray-800 bg-gray-800/20">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs">
+                        <span className="text-gray-500 block mb-1">PagTrust Hottok</span>
+                        {editingHottok === pixel.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={hottokValue}
+                              onChange={(e) => setHottokValue(e.target.value)}
+                              placeholder="Cole o hottok da PagTrust"
+                              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white placeholder-gray-500 w-64 font-mono"
+                            />
+                            <button
+                              onClick={() => saveHottok(pixel.id)}
+                              disabled={savingHottok}
+                              className="px-2 py-1 bg-green-600 hover:bg-green-700 rounded text-[11px] transition disabled:opacity-50"
+                            >
+                              {savingHottok ? '...' : 'Salvar'}
+                            </button>
+                            <button
+                              onClick={() => setEditingHottok(null)}
+                              className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-[11px] transition"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            {pixel.pagtrust_hottok ? (
+                              <code className="text-green-300 font-mono">{pixel.pagtrust_hottok.substring(0, 12)}...</code>
+                            ) : (
+                              <span className="text-yellow-400">Nao configurado</span>
+                            )}
+                            <button
+                              onClick={() => {
+                                setEditingHottok(pixel.id);
+                                setHottokValue(pixel.pagtrust_hottok || '');
+                              }}
+                              className="text-[11px] text-blue-400 hover:text-blue-300"
+                            >
+                              {pixel.pagtrust_hottok ? 'Editar' : 'Configurar'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-gray-600 mt-1">
+                      Copie o hottok em PagTrust: Configura&ccedil;&otilde;es &rarr; Webhooks &rarr; Hottok. Obrigat&oacute;rio para autenticar webhooks.
+                    </p>
                   </div>
 
                   {/* Add Site button */}
