@@ -79,6 +79,7 @@ const ProducerSchema = z.object({
 });
 
 export const PagTrustWebhookSchema = z.object({
+  hottok: z.string().optional(),
   creation_date: z.number(),
   event: z.string(),
   data: z.object({

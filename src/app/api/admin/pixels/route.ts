@@ -104,6 +104,7 @@ export async function POST(req: NextRequest) {
           pixel_id: payload.pixel_id,
           access_token: payload.access_token,
           webhook_secret: randomUUID(),
+          ...(payload.pagtrust_hottok ? { pagtrust_hottok: payload.pagtrust_hottok } : {}),
         })
         .select()
         .single();
@@ -145,6 +146,25 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json({ success: true, data }, { status: 201 });
+    }
+
+    if (action === 'update_hottok') {
+      const pixelUuid = body.pixel_uuid;
+      const hottok = body.pagtrust_hottok ?? '';
+      if (!pixelUuid) {
+        return NextResponse.json({ error: 'pixel_uuid is required' }, { status: 400 });
+      }
+
+      const { error } = await supabaseAdmin
+        .from('pixels')
+        .update({ pagtrust_hottok: hottok || null })
+        .eq('id', pixelUuid);
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true });
     }
 
     if (action === 'test_event') {

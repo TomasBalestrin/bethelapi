@@ -70,6 +70,7 @@ export const CreatePixelSchema = z.object({
   name: z.string().min(1).max(255),
   pixel_id: z.string().min(1).max(50),
   access_token: z.string().min(1),
+  pagtrust_hottok: z.string().max(255).optional(),
 });
 
 export type CreatePixelPayload = z.infer<typeof CreatePixelSchema>;

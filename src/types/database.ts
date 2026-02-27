@@ -15,6 +15,7 @@ export interface Pixel {
   pixel_id: string;
   access_token: string;
   webhook_secret?: string;
+  pagtrust_hottok?: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
