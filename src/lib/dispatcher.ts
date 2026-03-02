@@ -72,23 +72,31 @@ export async function processEventQueue(): Promise<DispatchResult> {
           .eq('event_id', event.event_id);
       }
 
+      const fbSendStart = Date.now();
       const result = await sendToMetaCapi(pixelEvents, pixel as Pixel);
+      const fbApiLatencyMs = Date.now() - fbSendStart;
+
+      const enrichedResponse = {
+        ...result.response,
+        fb_api_latency_ms: fbApiLatencyMs,
+      };
 
       if (result.success) {
+        const sentAt = new Date().toISOString();
         for (const event of pixelEvents) {
           await supabaseAdmin
             .from('events')
             .update({
               status: 'sent',
-              sent_at: new Date().toISOString(),
-              meta_response: result.response,
+              sent_at: sentAt,
+              meta_response: enrichedResponse,
             })
             .eq('event_id', event.event_id);
           totalSent++;
         }
       } else {
         for (const event of pixelEvents) {
-          await handleFailure(event, result.response, result.statusCode);
+          await handleFailure(event, enrichedResponse, result.statusCode);
           totalFailed++;
         }
       }
