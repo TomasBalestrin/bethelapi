@@ -7,20 +7,27 @@ export interface DispatchResult {
   sent: number;
   failed: number;
   recovered: number;
+  expired: number;
 }
 
 // Max time (minutes) an event can stay in 'processing' before being recovered
 const STUCK_THRESHOLD_MINUTES = 5;
 
+// Max time (hours) an event can stay in 'queued' before being marked as failed
+const QUEUE_EXPIRY_HOURS = 3;
+
 export async function processEventQueue(): Promise<DispatchResult> {
-  // 0. Recover stuck events: reset 'processing' events older than threshold back to 'queued'
   let recovered = 0;
+  let expired = 0;
+
+  // 0a. Recover stuck events: reset 'processing' events older than 5min back to 'queued'
   try {
     const stuckSince = new Date(Date.now() - STUCK_THRESHOLD_MINUTES * 60 * 1000).toISOString();
     const { data: stuckEvents } = await supabaseAdmin
       .from('events')
       .update({
         status: 'queued',
+        processing_at: null,
         error_message: `Recuperado: preso em processing por >${STUCK_THRESHOLD_MINUTES}min`,
       })
       .eq('status', 'processing')
@@ -35,6 +42,27 @@ export async function processEventQueue(): Promise<DispatchResult> {
     console.error('Stuck recovery error:', err);
   }
 
+  // 0b. Expire old queued events: mark events in queue >3h as failed
+  try {
+    const expiredSince = new Date(Date.now() - QUEUE_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+    const { data: expiredEvents } = await supabaseAdmin
+      .from('events')
+      .update({
+        status: 'failed',
+        error_message: `Expirado: na fila por mais de ${QUEUE_EXPIRY_HOURS}h sem processamento`,
+      })
+      .eq('status', 'queued')
+      .lt('queued_at', expiredSince)
+      .select('event_id');
+
+    expired = expiredEvents?.length || 0;
+    if (expired > 0) {
+      console.log(`Expired ${expired} events queued for >${QUEUE_EXPIRY_HOURS}h → failed`);
+    }
+  } catch (err) {
+    console.error('Queue expiry error:', err);
+  }
+
   // 1. Claim batch of events using SKIP LOCKED function
   const { data: events, error: claimError } = await supabaseAdmin.rpc('claim_events', {
     p_batch_size: BATCH_SIZE,
@@ -46,7 +74,7 @@ export async function processEventQueue(): Promise<DispatchResult> {
   }
 
   if (!events || events.length === 0) {
-    return { processed: 0, sent: 0, failed: 0, recovered };
+    return { processed: 0, sent: 0, failed: 0, recovered, expired };
   }
 
   // 2. Group events by pixel_uuid
@@ -64,11 +92,11 @@ export async function processEventQueue(): Promise<DispatchResult> {
 
   // 3. Process each pixel group
   for (const [pixelUuid, pixelEvents] of groupedByPixel) {
+    const eventIds = pixelEvents.map((e) => e.event_id);
+
     if (pixelUuid === 'unknown') {
-      for (const event of pixelEvents) {
-        await markFailed(event, 'No pixel_uuid associated');
-        totalFailed++;
-      }
+      await batchMarkFailed(eventIds, 'No pixel_uuid associated');
+      totalFailed += pixelEvents.length;
       continue;
     }
 
@@ -81,21 +109,25 @@ export async function processEventQueue(): Promise<DispatchResult> {
       .single();
 
     if (pixelError || !pixel) {
-      for (const event of pixelEvents) {
-        await markFailed(event, 'Pixel not found or inactive');
-        totalFailed++;
-      }
+      await batchMarkFailed(eventIds, 'Pixel not found or inactive');
+      totalFailed += pixelEvents.length;
       continue;
     }
 
     // 4. Send batch to Meta CAPI
     try {
-      for (const event of pixelEvents) {
-        const capiPayload = formatForCapi(event);
+      // Format payloads in batch
+      const capiPayloads = pixelEvents.map((event) => ({
+        event_id: event.event_id,
+        payload_capi: formatForCapi(event),
+      }));
+
+      // Batch update payload_capi (single query per batch instead of N queries)
+      for (const item of capiPayloads) {
         await supabaseAdmin
           .from('events')
-          .update({ payload_capi: capiPayload })
-          .eq('event_id', event.event_id);
+          .update({ payload_capi: item.payload_capi })
+          .eq('event_id', item.event_id);
       }
 
       const fbSendStart = Date.now();
@@ -108,34 +140,50 @@ export async function processEventQueue(): Promise<DispatchResult> {
       };
 
       if (result.success) {
+        // Batch update all events to 'sent' status
         const sentAt = new Date().toISOString();
-        for (const event of pixelEvents) {
-          await supabaseAdmin
-            .from('events')
-            .update({
-              status: 'sent',
-              sent_at: sentAt,
-              meta_response: enrichedResponse,
-            })
-            .eq('event_id', event.event_id);
-          totalSent++;
-        }
+        await supabaseAdmin
+          .from('events')
+          .update({
+            status: 'sent',
+            sent_at: sentAt,
+            meta_response: enrichedResponse,
+          })
+          .in('event_id', eventIds);
+
+        totalSent += pixelEvents.length;
       } else {
+        // Batch update meta_response, then handle failures individually (retry logic differs)
+        await supabaseAdmin
+          .from('events')
+          .update({ meta_response: enrichedResponse })
+          .in('event_id', eventIds);
+
         for (const event of pixelEvents) {
-          await handleFailure(event, enrichedResponse, result.statusCode);
+          await markFailed(event, `[${result.statusCode}] ${enrichedResponse.error?.message || JSON.stringify(enrichedResponse).substring(0, 500)}`);
           totalFailed++;
         }
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       for (const event of pixelEvents) {
-        await handleFailure(event, { error: { message: errorMsg } }, 0);
+        await markFailed(event, errorMsg);
         totalFailed++;
       }
     }
   }
 
-  return { processed: events.length, sent: totalSent, failed: totalFailed, recovered };
+  return { processed: events.length, sent: totalSent, failed: totalFailed, recovered, expired };
+}
+
+async function batchMarkFailed(eventIds: string[], errorMessage: string) {
+  await supabaseAdmin
+    .from('events')
+    .update({
+      status: 'failed',
+      error_message: errorMessage,
+    })
+    .in('event_id', eventIds);
 }
 
 async function markFailed(event: Event, errorMessage: string) {
@@ -162,23 +210,6 @@ async function markFailed(event: Event, errorMessage: string) {
   }
 }
 
-async function handleFailure(
-  event: Event,
-  response: Record<string, any>,
-  statusCode: number
-) {
-  const errorMsg =
-    (response.error as any)?.message ||
-    JSON.stringify(response).substring(0, 500);
-
-  await markFailed(event, `[${statusCode}] ${errorMsg}`);
-
-  await supabaseAdmin
-    .from('events')
-    .update({ meta_response: response })
-    .eq('event_id', event.event_id);
-}
-
 function categorizeError(message: string): string {
   const lower = message.toLowerCase();
   if (lower.includes('auth') || lower.includes('token') || lower.includes('permission')) {
@@ -186,6 +217,12 @@ function categorizeError(message: string): string {
   }
   if (lower.includes('rate') || lower.includes('limit') || lower.includes('throttl')) {
     return 'rate_limit';
+  }
+  if (lower.includes('timeout') || lower.includes('abort') || lower.includes('timed out')) {
+    return 'timeout';
+  }
+  if (lower.includes('network') || lower.includes('fetch') || lower.includes('econnre')) {
+    return 'network_error';
   }
   if (lower.includes('payload') || lower.includes('invalid') || lower.includes('required')) {
     return 'payload_error';

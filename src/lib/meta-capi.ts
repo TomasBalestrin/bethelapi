@@ -164,6 +164,7 @@ export async function sendToMetaCapi(
       ...payload,
       access_token: pixel.access_token,
     }),
+    signal: AbortSignal.timeout(30000),
   });
 
   const response: MetaResponse = await res.json();
