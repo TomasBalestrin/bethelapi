@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { validateAdminAuth, validateCronAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 // Manual trigger — accepts both admin secret and cron secret
 export async function GET(req: NextRequest) {

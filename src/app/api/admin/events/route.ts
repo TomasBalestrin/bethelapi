@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { validateAdminAuth } from '@/lib/auth';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   if (!(await validateAdminAuth(req))) {
