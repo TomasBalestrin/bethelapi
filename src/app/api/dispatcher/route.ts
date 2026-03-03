@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 // Manual trigger — accepts both admin secret and cron secret
 export async function GET(req: NextRequest) {
-  if (!validateAdminAuth(req) && !validateCronAuth(req)) {
+  if (!(await validateAdminAuth(req)) && !validateCronAuth(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

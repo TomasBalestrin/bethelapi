@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     if (err instanceof Error && err.name === 'ZodError') {
       return NextResponse.json(
-        { error: 'Invalid payload', details: (err as any).errors },
+        { error: 'Invalid payload', details: (err as any).issues },
         { status: 400 }
       );
     }
