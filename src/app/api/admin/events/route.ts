@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
   try {
     let kpiQuery = supabaseAdmin
       .from('events')
-      .select('status, created_at, sent_at, meta_response')
+      .select('status, created_at, sent_at, processing_at, meta_response')
       .order('created_at', { ascending: false })
       .limit(5000);
 
@@ -98,13 +98,10 @@ export async function GET(req: NextRequest) {
       let latencyCount = 0;
       let fbConfirmed = 0;
       let fbRejected = 0;
-      let processedCount = 0;
 
       for (const ev of kpiData) {
-        // Count by status
         byStatus[ev.status] = (byStatus[ev.status] || 0) + 1;
 
-        // Latency: created_at → sent_at
         if (ev.sent_at && ev.created_at) {
           const latency = new Date(ev.sent_at).getTime() - new Date(ev.created_at).getTime();
           if (latency >= 0) {
@@ -113,25 +110,44 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        // FB delivery analysis
-        if (ev.status === 'sent' || ev.status === 'failed' || ev.status === 'dlq') {
-          processedCount++;
-          const meta = ev.meta_response as any;
-          if (meta?.events_received && meta.events_received > 0) {
+        if (ev.status === 'sent') {
+          const meta = ev.meta_response as Record<string, unknown> | null;
+          if (meta && typeof meta === 'object' && 'events_received' in meta && (meta.events_received as number) > 0) {
             fbConfirmed++;
-          } else if (meta?.error || ev.status === 'failed' || ev.status === 'dlq') {
+          }
+        }
+        if (ev.status === 'failed' || ev.status === 'dlq') {
+          const meta = ev.meta_response as Record<string, unknown> | null;
+          if (meta && typeof meta === 'object' && 'error' in meta) {
             fbRejected++;
           }
         }
       }
 
       const sent = byStatus['sent'] || 0;
-      const successRate = processedCount > 0
-        ? Math.round((sent / processedCount) * 1000) / 10
+      const skipped = byStatus['skipped'] || 0;
+      const pending = (byStatus['queued'] || 0) + (byStatus['processing'] || 0) + (byStatus['received'] || 0);
+      const failed = (byStatus['failed'] || 0) + (byStatus['dlq'] || 0);
+
+      // Pipeline total = everything that should be delivered (excludes skipped)
+      const pipelineTotal = total - skipped;
+
+      // Taxa de entrega = sent / pipeline total (includes pending in denominator)
+      const deliveryRate = pipelineTotal > 0
+        ? Math.round((sent / pipelineTotal) * 1000) / 10
         : 0;
+
+      // Taxa de sucesso = sent / (sent + failed) — only completed events
+      const completed = sent + failed;
+      const successRate = completed > 0
+        ? Math.round((sent / completed) * 1000) / 10
+        : 0;
+
+      // FB confirmation rate = fb_confirmed / sent
       const fbConfirmRate = sent > 0
         ? Math.round((fbConfirmed / sent) * 1000) / 10
         : 0;
+
       const avgLatencyMs = latencyCount > 0
         ? Math.round(totalLatencyMs / latencyCount)
         : 0;
@@ -139,12 +155,16 @@ export async function GET(req: NextRequest) {
       kpis = {
         total,
         by_status: byStatus,
+        sent,
+        pending,
+        failed,
+        skipped,
+        delivery_rate: deliveryRate,
         success_rate: successRate,
         avg_latency_ms: avgLatencyMs,
         fb_confirmed: fbConfirmed,
         fb_rejected: fbRejected,
         fb_confirm_rate: fbConfirmRate,
-        processed: processedCount,
       };
     }
   } catch (kpiErr) {

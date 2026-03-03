@@ -6,9 +6,35 @@ export interface DispatchResult {
   processed: number;
   sent: number;
   failed: number;
+  recovered: number;
 }
 
+// Max time (minutes) an event can stay in 'processing' before being recovered
+const STUCK_THRESHOLD_MINUTES = 5;
+
 export async function processEventQueue(): Promise<DispatchResult> {
+  // 0. Recover stuck events: reset 'processing' events older than threshold back to 'queued'
+  let recovered = 0;
+  try {
+    const stuckSince = new Date(Date.now() - STUCK_THRESHOLD_MINUTES * 60 * 1000).toISOString();
+    const { data: stuckEvents } = await supabaseAdmin
+      .from('events')
+      .update({
+        status: 'queued',
+        error_message: `Recuperado: preso em processing por >${STUCK_THRESHOLD_MINUTES}min`,
+      })
+      .eq('status', 'processing')
+      .lt('processing_at', stuckSince)
+      .select('event_id');
+
+    recovered = stuckEvents?.length || 0;
+    if (recovered > 0) {
+      console.log(`Recovered ${recovered} stuck events from processing → queued`);
+    }
+  } catch (err) {
+    console.error('Stuck recovery error:', err);
+  }
+
   // 1. Claim batch of events using SKIP LOCKED function
   const { data: events, error: claimError } = await supabaseAdmin.rpc('claim_events', {
     p_batch_size: BATCH_SIZE,
@@ -20,7 +46,7 @@ export async function processEventQueue(): Promise<DispatchResult> {
   }
 
   if (!events || events.length === 0) {
-    return { processed: 0, sent: 0, failed: 0 };
+    return { processed: 0, sent: 0, failed: 0, recovered };
   }
 
   // 2. Group events by pixel_uuid
@@ -109,7 +135,7 @@ export async function processEventQueue(): Promise<DispatchResult> {
     }
   }
 
-  return { processed: events.length, sent: totalSent, failed: totalFailed };
+  return { processed: events.length, sent: totalSent, failed: totalFailed, recovered };
 }
 
 async function markFailed(event: Event, errorMessage: string) {
