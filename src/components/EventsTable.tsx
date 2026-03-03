@@ -6,6 +6,24 @@ interface Props {
   autoRefresh: boolean;
 }
 
+interface KPIs {
+  total: number;
+  by_status: Record<string, number>;
+  success_rate: number;
+  avg_latency_ms: number;
+  fb_confirmed: number;
+  fb_rejected: number;
+  fb_confirm_rate: number;
+  processed: number;
+}
+
+interface PixelWithSites {
+  id: string;
+  name: string;
+  pixel_id: string;
+  sites: { id: string; domain: string }[];
+}
+
 interface MetaResponse {
   events_received?: number;
   fbtrace_id?: string;
@@ -136,28 +154,43 @@ export function EventsTable({ autoRefresh }: Props) {
   const [statusFilter, setStatusFilter] = useState('');
   const [eventNameFilter, setEventNameFilter] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [kpis, setKpis] = useState<KPIs | null>(null);
+  const [pixels, setPixels] = useState<PixelWithSites[]>([]);
+  const [pixelFilter, setPixelFilter] = useState('');
+  const [hours, setHours] = useState(24);
+
+  useEffect(() => {
+    fetch('/api/admin/pixels')
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => { if (data?.data) setPixels(data.data); })
+      .catch(() => {});
+  }, []);
 
   const fetchEvents = useCallback(async () => {
     try {
       const params = new URLSearchParams({
         page: pagination.page.toString(),
         limit: '50',
+        hours: String(hours),
       });
       if (statusFilter) params.set('status', statusFilter);
       if (eventNameFilter) params.set('event_name', eventNameFilter);
+      if (pixelFilter.startsWith('site:')) params.set('site_id', pixelFilter.slice(5));
+      if (pixelFilter.startsWith('pixel:')) params.set('pixel_uuid', pixelFilter.slice(6));
 
       const res = await fetch(`/api/admin/events?${params}`);
       if (res.ok) {
         const data = await res.json();
         setEvents(data.data || []);
         setPagination(data.pagination);
+        if (data.kpis) setKpis(data.kpis);
       }
     } catch (err) {
       console.error('Failed to fetch events:', err);
     } finally {
       setLoading(false);
     }
-  }, [pagination.page, statusFilter, eventNameFilter]);
+  }, [pagination.page, statusFilter, eventNameFilter, pixelFilter, hours]);
 
   useEffect(() => {
     setLoading(true);
@@ -191,8 +224,59 @@ export function EventsTable({ autoRefresh }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* KPI Cards */}
+      {kpis && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="p-4 rounded-xl border bg-blue-500/10 border-blue-500/30">
+            <div className="text-xs text-blue-400/80 mb-1">Total Eventos</div>
+            <div className="text-2xl font-bold text-blue-400">{kpis.total.toLocaleString('pt-BR')}</div>
+          </div>
+          <div className={`p-4 rounded-xl border ${kpis.success_rate >= 95 ? 'bg-green-500/10 border-green-500/30' : kpis.success_rate >= 80 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+            <div className="text-xs opacity-80 mb-1">Taxa de Sucesso</div>
+            <div className="text-2xl font-bold">{kpis.success_rate}%</div>
+            <div className="text-[10px] opacity-60 mt-0.5">{kpis.by_status['sent'] || 0} de {kpis.processed} processados</div>
+          </div>
+          <div className={`p-4 rounded-xl border ${kpis.avg_latency_ms <= 5000 ? 'bg-green-500/10 border-green-500/30' : kpis.avg_latency_ms <= 30000 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+            <div className="text-xs opacity-80 mb-1">Latencia Media</div>
+            <div className="text-2xl font-bold">{formatLatency(kpis.avg_latency_ms)}</div>
+          </div>
+          <div className={`p-4 rounded-xl border ${kpis.fb_confirm_rate >= 95 ? 'bg-green-500/10 border-green-500/30' : kpis.fb_confirm_rate >= 80 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+            <div className="text-xs opacity-80 mb-1">Confirmacao FB</div>
+            <div className="text-2xl font-bold">{kpis.fb_confirm_rate}%</div>
+            <div className="text-[10px] opacity-60 mt-0.5">{kpis.fb_confirmed} confirmados</div>
+          </div>
+          <div className={`p-4 rounded-xl border ${(kpis.by_status['failed'] || 0) + (kpis.by_status['dlq'] || 0) === 0 ? 'bg-green-500/10 border-green-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+            <div className="text-xs opacity-80 mb-1">Falhas + DLQ</div>
+            <div className="text-2xl font-bold">{(kpis.by_status['failed'] || 0) + (kpis.by_status['dlq'] || 0)}</div>
+            <div className="text-[10px] opacity-60 mt-0.5">{kpis.fb_rejected} rejeitados pelo FB</div>
+          </div>
+          <div className="p-4 rounded-xl border bg-purple-500/10 border-purple-500/30">
+            <div className="text-xs text-purple-400/80 mb-1">Na Fila</div>
+            <div className="text-2xl font-bold text-purple-400">{(kpis.by_status['queued'] || 0) + (kpis.by_status['processing'] || 0)}</div>
+            <div className="text-[10px] text-purple-400/60 mt-0.5">{kpis.by_status['received'] || 0} recebidos</div>
+          </div>
+        </div>
+      )}
+
       {/* Filters */}
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex gap-3 flex-wrap items-center">
+        {/* Pixel/Site filter */}
+        <select
+          value={pixelFilter}
+          onChange={(e) => { setPixelFilter(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white min-w-[180px]"
+        >
+          <option value="">Todos os pixels</option>
+          {pixels.map((pixel) => (
+            <optgroup key={pixel.id} label={`${pixel.name} (${pixel.pixel_id})`}>
+              <option value={`pixel:${pixel.id}`}>{pixel.name} — todos</option>
+              {pixel.sites?.map((site) => (
+                <option key={site.id} value={`site:${site.id}`}>{site.domain}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPagination(p => ({ ...p, page: 1 })); }}
@@ -212,15 +296,26 @@ export function EventsTable({ autoRefresh }: Props) {
           className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500"
         />
 
-        <div className="ml-auto text-sm text-gray-400 flex items-center">
-          {pagination.total} eventos encontrados
+        {/* Time range */}
+        <div className="flex gap-1 ml-auto">
+          {[1, 6, 12, 24, 48, 168].map((h) => (
+            <button
+              key={h}
+              onClick={() => { setHours(h); setPagination(p => ({ ...p, page: 1 })); }}
+              className={`px-2.5 py-1.5 rounded text-xs ${hours === h ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
+            >
+              {h < 24 ? `${h}h` : `${h / 24}d`}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-        <span>Latencia: <span className="text-green-400">verde &le;5s</span> | <span className="text-yellow-400">amarelo &le;30s</span> | <span className="text-red-400">vermelho &gt;30s</span></span>
-        <span>Entrega FB: <span className="text-green-400">Confirmado</span> | <span className="text-yellow-400">Incerto</span> | <span className="text-red-400">Rejeitado/Falhou</span></span>
+      <div className="flex items-center justify-between text-xs text-gray-500">
+        <div className="flex flex-wrap gap-4">
+          <span>Latencia: <span className="text-green-400">&le;5s</span> | <span className="text-yellow-400">&le;30s</span> | <span className="text-red-400">&gt;30s</span></span>
+          <span>Entrega FB: <span className="text-green-400">Confirmado</span> | <span className="text-yellow-400">Incerto</span> | <span className="text-red-400">Rejeitado/Falhou</span></span>
+        </div>
+        <span>{pagination.total} eventos encontrados</span>
       </div>
 
       {/* Table */}
