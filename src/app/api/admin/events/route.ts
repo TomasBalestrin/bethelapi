@@ -83,7 +83,7 @@ export async function GET(req: NextRequest) {
   try {
     let kpiQuery = supabaseAdmin
       .from('events')
-      .select('status, created_at, sent_at, processing_at, meta_response')
+      .select('status, created_at, sent_at, queued_at, meta_response')
       .order('created_at', { ascending: false })
       .limit(5000);
 
@@ -96,12 +96,21 @@ export async function GET(req: NextRequest) {
       const byStatus: Record<string, number> = {};
       let totalLatencyMs = 0;
       let latencyCount = 0;
-      let fbConfirmed = 0;
+
+      // Taxa de Sucesso: sent to FB AND confirmed by FB (events_received > 0)
+      let fbSuccess = 0;
+      // Taxa de Perda: FB rejected (meta error) + failed + dlq
       let fbRejected = 0;
+      // Taxa de Falha: events with status 'failed' (couldn't send at all)
+      let sendFailed = 0;
+      // Fila: queued + processing (with 3h expiry threshold)
+      let inQueue = 0;
+      const threeHoursAgo = Date.now() - 3 * 60 * 60 * 1000;
 
       for (const ev of kpiData) {
         byStatus[ev.status] = (byStatus[ev.status] || 0) + 1;
 
+        // Latency
         if (ev.sent_at && ev.created_at) {
           const latency = new Date(ev.sent_at).getTime() - new Date(ev.created_at).getTime();
           if (latency >= 0) {
@@ -110,44 +119,52 @@ export async function GET(req: NextRequest) {
           }
         }
 
+        const meta = ev.meta_response as Record<string, unknown> | null;
+
         if (ev.status === 'sent') {
-          const meta = ev.meta_response as Record<string, unknown> | null;
+          // Sent AND FB confirmed?
           if (meta && typeof meta === 'object' && 'events_received' in meta && (meta.events_received as number) > 0) {
-            fbConfirmed++;
-          }
-        }
-        if (ev.status === 'failed' || ev.status === 'dlq') {
-          const meta = ev.meta_response as Record<string, unknown> | null;
-          if (meta && typeof meta === 'object' && 'error' in meta) {
+            fbSuccess++;
+          } else {
+            // Sent but FB didn't confirm = loss
             fbRejected++;
+          }
+        } else if (ev.status === 'failed') {
+          // Check if it was FB rejection or our send failure
+          if (meta && typeof meta === 'object' && 'error' in meta) {
+            // FB rejected it
+            fbRejected++;
+          } else {
+            // We couldn't send
+            sendFailed++;
+          }
+        } else if (ev.status === 'dlq') {
+          // Dead letter = loss
+          fbRejected++;
+        } else if (ev.status === 'queued' || ev.status === 'processing') {
+          // Check if expired (>3h)
+          const queuedTime = ev.queued_at ? new Date(ev.queued_at).getTime() : new Date(ev.created_at).getTime();
+          if (queuedTime < threeHoursAgo) {
+            // Should be expired — counted as failure (dispatcher will mark them)
+            sendFailed++;
+          } else {
+            inQueue++;
           }
         }
       }
 
-      const sent = byStatus['sent'] || 0;
       const skipped = byStatus['skipped'] || 0;
-      const pending = (byStatus['queued'] || 0) + (byStatus['processing'] || 0) + (byStatus['received'] || 0);
-      const failed = (byStatus['failed'] || 0) + (byStatus['dlq'] || 0);
-
-      // Pipeline total = everything that should be delivered (excludes skipped)
       const pipelineTotal = total - skipped;
 
-      // Taxa de entrega = sent / pipeline total (includes pending in denominator)
-      const deliveryRate = pipelineTotal > 0
-        ? Math.round((sent / pipelineTotal) * 1000) / 10
+      const successRate = pipelineTotal > 0
+        ? Math.round((fbSuccess / pipelineTotal) * 1000) / 10
         : 0;
-
-      // Taxa de sucesso = sent / (sent + failed) — only completed events
-      const completed = sent + failed;
-      const successRate = completed > 0
-        ? Math.round((sent / completed) * 1000) / 10
+      const lossRate = pipelineTotal > 0
+        ? Math.round((fbRejected / pipelineTotal) * 1000) / 10
         : 0;
-
-      // FB confirmation rate = fb_confirmed / sent
-      const fbConfirmRate = sent > 0
-        ? Math.round((fbConfirmed / sent) * 1000) / 10
+      const failRate = pipelineTotal > 0
+        ? Math.round((sendFailed / pipelineTotal) * 1000) / 10
         : 0;
-
       const avgLatencyMs = latencyCount > 0
         ? Math.round(totalLatencyMs / latencyCount)
         : 0;
@@ -155,16 +172,14 @@ export async function GET(req: NextRequest) {
       kpis = {
         total,
         by_status: byStatus,
-        sent,
-        pending,
-        failed,
-        skipped,
-        delivery_rate: deliveryRate,
+        fb_success: fbSuccess,
         success_rate: successRate,
-        avg_latency_ms: avgLatencyMs,
-        fb_confirmed: fbConfirmed,
         fb_rejected: fbRejected,
-        fb_confirm_rate: fbConfirmRate,
+        loss_rate: lossRate,
+        send_failed: sendFailed,
+        fail_rate: failRate,
+        in_queue: inQueue,
+        avg_latency_ms: avgLatencyMs,
       };
     }
   } catch (kpiErr) {

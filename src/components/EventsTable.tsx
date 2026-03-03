@@ -9,16 +9,14 @@ interface Props {
 interface KPIs {
   total: number;
   by_status: Record<string, number>;
-  sent: number;
-  pending: number;
-  failed: number;
-  skipped: number;
-  delivery_rate: number;
+  fb_success: number;
   success_rate: number;
-  avg_latency_ms: number;
-  fb_confirmed: number;
   fb_rejected: number;
-  fb_confirm_rate: number;
+  loss_rate: number;
+  send_failed: number;
+  fail_rate: number;
+  in_queue: number;
+  avg_latency_ms: number;
 }
 
 interface PixelWithSites {
@@ -232,57 +230,57 @@ export function EventsTable({ autoRefresh }: Props) {
       {kpis && (
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            {/* 1. Total */}
+            {/* 1. Total de Eventos */}
             <div className="p-4 rounded-xl border bg-blue-500/10 border-blue-500/30">
-              <div className="text-[11px] text-blue-400/80 mb-1">Total Recebidos</div>
+              <div className="text-[11px] text-blue-400/80 mb-1">Total de Eventos</div>
               <div className="text-2xl font-bold text-blue-400">{kpis.total.toLocaleString('pt-BR')}</div>
-              {kpis.skipped > 0 && (
-                <div className="text-[10px] text-gray-500 mt-0.5">{kpis.skipped} ignorados</div>
-              )}
+              <div className="text-[10px] text-blue-400/50 mt-0.5">recebidos pelo sistema</div>
             </div>
 
-            {/* 2. Taxa de Entrega — sent / (total - skipped) */}
-            <div className={`p-4 rounded-xl border ${kpis.delivery_rate >= 90 ? 'bg-green-500/10 border-green-500/30' : kpis.delivery_rate >= 70 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
-              <div className="text-[11px] opacity-80 mb-1">Taxa de Entrega</div>
-              <div className="text-2xl font-bold">{kpis.delivery_rate}%</div>
-              <div className="text-[10px] opacity-50 mt-0.5">{kpis.sent} de {kpis.total - kpis.skipped} do pipeline</div>
-            </div>
-
-            {/* 3. Taxa de Sucesso — sent / (sent + failed) */}
-            <div className={`p-4 rounded-xl border ${kpis.success_rate >= 95 ? 'bg-green-500/10 border-green-500/30' : kpis.success_rate >= 80 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
-              <div className="text-[11px] opacity-80 mb-1">Sucesso (processados)</div>
+            {/* 2. Taxa de Sucesso — enviados E confirmados pelo FB */}
+            <div className={`p-4 rounded-xl border ${kpis.success_rate >= 90 ? 'bg-green-500/10 border-green-500/30' : kpis.success_rate >= 70 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+              <div className="text-[11px] opacity-80 mb-1">Taxa de Sucesso</div>
               <div className="text-2xl font-bold">{kpis.success_rate}%</div>
-              <div className="text-[10px] opacity-50 mt-0.5">{kpis.sent} ok / {kpis.failed} falharam</div>
+              <div className="text-[10px] opacity-50 mt-0.5">{kpis.fb_success} enviados e confirmados pelo FB</div>
             </div>
 
-            {/* 4. Confirmacao FB */}
-            <div className={`p-4 rounded-xl border ${kpis.fb_confirm_rate >= 95 ? 'bg-green-500/10 border-green-500/30' : kpis.fb_confirm_rate >= 80 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
-              <div className="text-[11px] opacity-80 mb-1">Confirmados FB</div>
-              <div className="text-2xl font-bold">{kpis.fb_confirm_rate}%</div>
-              <div className="text-[10px] opacity-50 mt-0.5">{kpis.fb_confirmed} confirmados / {kpis.fb_rejected} rejeitados</div>
+            {/* 3. Taxa de Perda — FB rejeitou ou nao entregou */}
+            <div className={`p-4 rounded-xl border ${kpis.loss_rate === 0 ? 'bg-green-500/10 border-green-500/30' : kpis.loss_rate <= 5 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+              <div className="text-[11px] opacity-80 mb-1">Taxa de Perda</div>
+              <div className="text-2xl font-bold">{kpis.loss_rate}%</div>
+              <div className="text-[10px] opacity-50 mt-0.5">{kpis.fb_rejected} rejeitados/nao entregues pelo FB</div>
             </div>
 
-            {/* 5. Latencia */}
+            {/* 4. Taxa de Falha — nao conseguimos enviar */}
+            <div className={`p-4 rounded-xl border ${kpis.fail_rate === 0 ? 'bg-green-500/10 border-green-500/30' : kpis.fail_rate <= 3 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+              <div className="text-[11px] opacity-80 mb-1">Taxa de Falha</div>
+              <div className="text-2xl font-bold">{kpis.fail_rate}%</div>
+              <div className="text-[10px] opacity-50 mt-0.5">{kpis.send_failed} nao enviados (falha interna)</div>
+            </div>
+
+            {/* 5. Eventos na Fila */}
+            <div className={`p-4 rounded-xl border ${kpis.in_queue === 0 ? 'bg-green-500/10 border-green-500/30' : kpis.in_queue <= 10 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
+              <div className="text-[11px] opacity-80 mb-1">Eventos na Fila</div>
+              <div className="text-2xl font-bold">{kpis.in_queue}</div>
+              <div className="text-[10px] opacity-50 mt-0.5">
+                {kpis.by_status['queued'] || 0} aguardando + {kpis.by_status['processing'] || 0} processando
+              </div>
+            </div>
+
+            {/* 6. Latencia Media */}
             <div className={`p-4 rounded-xl border ${kpis.avg_latency_ms <= 5000 ? 'bg-green-500/10 border-green-500/30' : kpis.avg_latency_ms <= 30000 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
               <div className="text-[11px] opacity-80 mb-1">Latencia Media</div>
               <div className="text-2xl font-bold">{kpis.avg_latency_ms > 0 ? formatLatency(kpis.avg_latency_ms) : '--'}</div>
-            </div>
-
-            {/* 6. Pendentes */}
-            <div className={`p-4 rounded-xl border ${kpis.pending === 0 ? 'bg-green-500/10 border-green-500/30' : kpis.pending <= 10 ? 'bg-yellow-500/10 border-yellow-500/30' : 'bg-red-500/10 border-red-500/30'}`}>
-              <div className="text-[11px] opacity-80 mb-1">Pendentes</div>
-              <div className="text-2xl font-bold">{kpis.pending}</div>
-              <div className="text-[10px] opacity-50 mt-0.5">
-                {kpis.by_status['queued'] || 0} fila + {kpis.by_status['processing'] || 0} proc.
-              </div>
+              <div className="text-[10px] opacity-50 mt-0.5">recebido ate enviado ao FB</div>
             </div>
           </div>
 
           {/* KPI explanation */}
           <div className="bg-gray-900/50 rounded-lg border border-gray-800/50 px-4 py-2.5 text-[11px] text-gray-500 space-y-0.5">
-            <div><strong className="text-gray-400">Taxa de Entrega</strong> = enviados / total do pipeline (inclui pendentes no denominador — se ha eventos na fila, a taxa cai)</div>
-            <div><strong className="text-gray-400">Sucesso (processados)</strong> = enviados / (enviados + falhados) — somente eventos que ja foram processados</div>
-            <div><strong className="text-gray-400">Confirmados FB</strong> = eventos que o Facebook confirmou receber / total enviados</div>
+            <div><strong className="text-gray-400">Sucesso</strong> = eventos que enviamos ao FB e ele confirmou o recebimento (events_received &gt; 0)</div>
+            <div><strong className="text-gray-400">Perda</strong> = eventos que enviamos mas o FB rejeitou + eventos que falharam apos tentativas + DLQ</div>
+            <div><strong className="text-gray-400">Falha</strong> = eventos que recebemos mas nao conseguimos enviar ao FB (erro interno, timeout, pixel inativo)</div>
+            <div><strong className="text-gray-400">Fila</strong> = eventos aguardando envio (eventos na fila ha mais de 3h sao marcados como falha automaticamente)</div>
           </div>
         </>
       )}

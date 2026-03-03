@@ -1,1 +1,16 @@
-{}
+{
+  "crons": [
+    {
+      "path": "/api/dispatcher",
+      "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/stats",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/purge",
+      "schedule": "0 3 * * 0"
+    }
+  ]
+}
