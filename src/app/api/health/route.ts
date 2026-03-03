@@ -26,7 +26,7 @@ export async function GET() {
   // Check Meta CAPI reachability
   const metaStart = Date.now();
   try {
-    const res = await fetch('https://graph.facebook.com/v19.0/', {
+    const res = await fetch('https://graph.facebook.com/v22.0/', {
       method: 'GET',
       signal: AbortSignal.timeout(5000),
     });
