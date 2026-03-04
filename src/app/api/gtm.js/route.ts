@@ -3,6 +3,7 @@ import { minify } from 'terser';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 // In-memory cache: domain -> { minified, expiresAt }
 const sdkCache = new Map<string, { code: string; expiresAt: number }>();

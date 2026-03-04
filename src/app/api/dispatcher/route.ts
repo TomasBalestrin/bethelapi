@@ -3,6 +3,7 @@ import { validateAdminAuth, validateCronAuth } from '@/lib/auth';
 import { processEventQueue } from '@/lib/dispatcher';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 // Manual trigger — accepts both admin secret and cron secret

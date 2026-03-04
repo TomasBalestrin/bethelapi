@@ -6,6 +6,7 @@ import { reconcileWithClientEvent } from '@/lib/pagtrust/reconcile';
 import { processEventQueue } from '@/lib/dispatcher';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function POST(
   req: NextRequest,

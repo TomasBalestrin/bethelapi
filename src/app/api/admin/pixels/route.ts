@@ -7,6 +7,7 @@ import { CreatePixelSchema, CreateSiteSchema } from '@/lib/validators';
 import { validateMetaToken, sendTestEvent } from '@/lib/meta-capi';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 // GET — List all pixels with their sites
 export async function GET(req: NextRequest) {
