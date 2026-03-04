@@ -55,11 +55,41 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    // Default: delete pixel (cascade deletes sites)
+    // Default: delete pixel and all associated data
     if (!pixel_id) {
       return NextResponse.json({ error: 'pixel_id is required' }, { status: 400 });
     }
 
+    // 1. Get all event_ids linked to this pixel for event_logs cleanup
+    const { data: pixelEvents } = await supabaseAdmin
+      .from('events')
+      .select('event_id')
+      .eq('pixel_uuid', pixel_id);
+
+    const { data: dlqEvents } = await supabaseAdmin
+      .from('dlq_events')
+      .select('event_id')
+      .eq('pixel_uuid', pixel_id);
+
+    const eventIds = [
+      ...(pixelEvents || []).map(e => e.event_id),
+      ...(dlqEvents || []).map(e => e.event_id),
+    ];
+
+    // 2. Delete event_logs for these events
+    if (eventIds.length > 0) {
+      await supabaseAdmin
+        .from('event_logs')
+        .delete()
+        .in('event_id', eventIds);
+    }
+
+    // 3. Delete daily_stats, dlq_events, events linked to this pixel
+    await supabaseAdmin.from('daily_stats').delete().eq('pixel_uuid', pixel_id);
+    await supabaseAdmin.from('dlq_events').delete().eq('pixel_uuid', pixel_id);
+    await supabaseAdmin.from('events').delete().eq('pixel_uuid', pixel_id);
+
+    // 4. Delete the pixel (CASCADE removes sites)
     const { error } = await supabaseAdmin
       .from('pixels')
       .delete()
